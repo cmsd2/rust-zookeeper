@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="generator" content="rustdoc">
+    <meta name="description" content="API documentation for the Rust `ZooKeeper` struct in crate `zookeeper`.">
+    <meta name="keywords" content="rust, rustlang, rust-lang, ZooKeeper">
+
+    <title>zookeeper::ZooKeeper - Rust</title>
+
+    <link rel="stylesheet" type="text/css" href="../main.css">
+
+    
+    
+</head>
+<body class="rustdoc">
+    <!--[if lte IE 8]>
+    <div class="warning">
+        This old browser is unsupported and will most likely display funky
+        things.
+    </div>
+    <![endif]-->
+
+    
+
+    <section class="sidebar">
+        
+        <p class='location'><a href='index.html'>zookeeper</a></p><script>window.sidebarCurrent = {name: 'ZooKeeper', ty: 'struct', relpath: ''};</script><script defer src="sidebar-items.js"></script>
+    </section>
+
+    <nav class="sub">
+        <form class="search-form js-only">
+            <div class="search-container">
+                <input class="search-input" name="search"
+                       autocomplete="off"
+                       placeholder="Click or press ‘S’ to search, ‘?’ for more options…"
+                       type="search">
+            </div>
+        </form>
+    </nav>
+
+    <section id='main' class="content struct">
+<h1 class='fqn'><span class='in-band'>Struct <a href='index.html'>zookeeper</a>::<wbr><a class='struct' href=''>ZooKeeper</a></span><span class='out-of-band'><span id='render-detail'>
+            <a id="toggle-all-docs" href="javascript:void(0)" title="collapse all docs">
+                [<span class='inner'>&#x2212;</span>]
+            </a>
+        </span><a id='src-9249' class='srclink' href='../src/zookeeper/zookeeper.rs.html#29-33' title='goto source code'>[src]</a></span></h1>
+<pre class='rust struct'>pub struct ZooKeeper {
+    // some fields omitted
+}</pre><h2 id='methods'>Methods</h2><h3 class='impl'><code>impl <a class='struct' href='../zookeeper/struct.ZooKeeper.html' title='zookeeper::ZooKeeper'>ZooKeeper</a></code></h3><div class='impl-items'><h4 id='method.connect' class='method'><code>fn <a href='#method.connect' class='fnname'>connect</a>&lt;W&gt;(connect_string: &amp;<a href='https://doc.rust-lang.org/nightly/std/primitive.str.html'>str</a>, timeout: <a class='struct' href='https://doc.rust-lang.org/nightly/std/time/duration/struct.Duration.html' title='std::time::duration::Duration'>Duration</a>, watcher: W) -&gt; <a class='type' href='../zookeeper/type.ZkResult.html' title='zookeeper::ZkResult'>ZkResult</a>&lt;<a class='struct' href='../zookeeper/struct.ZooKeeper.html' title='zookeeper::ZooKeeper'>ZooKeeper</a>&gt; <span class='where'>where W: <a class='trait' href='../zookeeper/trait.Watcher.html' title='zookeeper::Watcher'>Watcher</a> + 'static</span></code></h4>
+<h4 id='method.add_auth' class='method'><code>fn <a href='#method.add_auth' class='fnname'>add_auth</a>(&amp;self, scheme: &amp;<a href='https://doc.rust-lang.org/nightly/std/primitive.str.html'>str</a>, auth: <a class='struct' href='https://doc.rust-lang.org/nightly/collections/vec/struct.Vec.html' title='collections::vec::Vec'>Vec</a>&lt;<a href='https://doc.rust-lang.org/nightly/std/primitive.u8.html'>u8</a>&gt;) -&gt; <a class='type' href='../zookeeper/type.ZkResult.html' title='zookeeper::ZkResult'>ZkResult</a>&lt;<a href='https://doc.rust-lang.org/nightly/std/primitive.tuple.html'>()</a>&gt;</code></h4>
+<h4 id='method.create' class='method'><code>fn <a href='#method.create' class='fnname'>create</a>(&amp;self, path: &amp;<a href='https://doc.rust-lang.org/nightly/std/primitive.str.html'>str</a>, data: <a class='struct' href='https://doc.rust-lang.org/nightly/collections/vec/struct.Vec.html' title='collections::vec::Vec'>Vec</a>&lt;<a href='https://doc.rust-lang.org/nightly/std/primitive.u8.html'>u8</a>&gt;, acl: <a class='struct' href='https://doc.rust-lang.org/nightly/collections/vec/struct.Vec.html' title='collections::vec::Vec'>Vec</a>&lt;<a class='struct' href='../zookeeper/struct.Acl.html' title='zookeeper::Acl'>Acl</a>&gt;, mode: <a class='enum' href='../zookeeper/enum.CreateMode.html' title='zookeeper::CreateMode'>CreateMode</a>) -&gt; <a class='type' href='../zookeeper/type.ZkResult.html' title='zookeeper::ZkResult'>ZkResult</a>&lt;<a class='struct' href='https://doc.rust-lang.org/nightly/collections/string/struct.String.html' title='collections::string::String'>String</a>&gt;</code></h4>
+<h4 id='method.delete' class='method'><code>fn <a href='#method.delete' class='fnname'>delete</a>(&amp;self, path: &amp;<a href='https://doc.rust-lang.org/nightly/std/primitive.str.html'>str</a>, version: <a href='https://doc.rust-lang.org/nightly/std/primitive.i32.html'>i32</a>) -&gt; <a class='type' href='../zookeeper/type.ZkResult.html' title='zookeeper::ZkResult'>ZkResult</a>&lt;<a href='https://doc.rust-lang.org/nightly/std/primitive.tuple.html'>()</a>&gt;</code></h4>
+<h4 id='method.exists' class='method'><code>fn <a href='#method.exists' class='fnname'>exists</a>(&amp;self, path: &amp;<a href='https://doc.rust-lang.org/nightly/std/primitive.str.html'>str</a>, watch: <a href='https://doc.rust-lang.org/nightly/std/primitive.bool.html'>bool</a>) -&gt; <a class='type' href='../zookeeper/type.ZkResult.html' title='zookeeper::ZkResult'>ZkResult</a>&lt;<a class='struct' href='../zookeeper/struct.Stat.html' title='zookeeper::Stat'>Stat</a>&gt;</code></h4>
+<h4 id='method.exists_w' class='method'><code>fn <a href='#method.exists_w' class='fnname'>exists_w</a>&lt;W: <a class='trait' href='../zookeeper/trait.Watcher.html' title='zookeeper::Watcher'>Watcher</a> + 'static&gt;(&amp;self, path: &amp;<a href='https://doc.rust-lang.org/nightly/std/primitive.str.html'>str</a>, watcher: W) -&gt; <a class='type' href='../zookeeper/type.ZkResult.html' title='zookeeper::ZkResult'>ZkResult</a>&lt;<a class='struct' href='../zookeeper/struct.Stat.html' title='zookeeper::Stat'>Stat</a>&gt;</code></h4>
+<h4 id='method.get_acl' class='method'><code>fn <a href='#method.get_acl' class='fnname'>get_acl</a>(&amp;self, path: &amp;<a href='https://doc.rust-lang.org/nightly/std/primitive.str.html'>str</a>) -&gt; <a class='type' href='../zookeeper/type.ZkResult.html' title='zookeeper::ZkResult'>ZkResult</a>&lt;<a href='https://doc.rust-lang.org/nightly/std/primitive.tuple.html'>(<a class='struct' href='https://doc.rust-lang.org/nightly/collections/vec/struct.Vec.html' title='collections::vec::Vec'>Vec</a>&lt;<a class='struct' href='../zookeeper/struct.Acl.html' title='zookeeper::Acl'>Acl</a>&gt;, <a class='struct' href='../zookeeper/struct.Stat.html' title='zookeeper::Stat'>Stat</a>)</a>&gt;</code></h4>
+<h4 id='method.get_children_w' class='method'><code>fn <a href='#method.get_children_w' class='fnname'>get_children_w</a>&lt;W: <a class='trait' href='../zookeeper/trait.Watcher.html' title='zookeeper::Watcher'>Watcher</a> + 'static&gt;(&amp;self, path: &amp;<a href='https://doc.rust-lang.org/nightly/std/primitive.str.html'>str</a>, watcher: W) -&gt; <a class='type' href='../zookeeper/type.ZkResult.html' title='zookeeper::ZkResult'>ZkResult</a>&lt;<a class='struct' href='https://doc.rust-lang.org/nightly/collections/vec/struct.Vec.html' title='collections::vec::Vec'>Vec</a>&lt;<a class='struct' href='https://doc.rust-lang.org/nightly/collections/string/struct.String.html' title='collections::string::String'>String</a>&gt;&gt;</code></h4>
+<h4 id='method.get_children' class='method'><code>fn <a href='#method.get_children' class='fnname'>get_children</a>(&amp;self, path: &amp;<a href='https://doc.rust-lang.org/nightly/std/primitive.str.html'>str</a>, watch: <a href='https://doc.rust-lang.org/nightly/std/primitive.bool.html'>bool</a>) -&gt; <a class='type' href='../zookeeper/type.ZkResult.html' title='zookeeper::ZkResult'>ZkResult</a>&lt;<a class='struct' href='https://doc.rust-lang.org/nightly/collections/vec/struct.Vec.html' title='collections::vec::Vec'>Vec</a>&lt;<a class='struct' href='https://doc.rust-lang.org/nightly/collections/string/struct.String.html' title='collections::string::String'>String</a>&gt;&gt;</code></h4>
+<h4 id='method.get_data' class='method'><code>fn <a href='#method.get_data' class='fnname'>get_data</a>(&amp;self, path: &amp;<a href='https://doc.rust-lang.org/nightly/std/primitive.str.html'>str</a>, watch: <a href='https://doc.rust-lang.org/nightly/std/primitive.bool.html'>bool</a>) -&gt; <a class='type' href='../zookeeper/type.ZkResult.html' title='zookeeper::ZkResult'>ZkResult</a>&lt;<a href='https://doc.rust-lang.org/nightly/std/primitive.tuple.html'>(<a class='struct' href='https://doc.rust-lang.org/nightly/collections/vec/struct.Vec.html' title='collections::vec::Vec'>Vec</a>&lt;<a href='https://doc.rust-lang.org/nightly/std/primitive.u8.html'>u8</a>&gt;, <a class='struct' href='../zookeeper/struct.Stat.html' title='zookeeper::Stat'>Stat</a>)</a>&gt;</code></h4>
+<h4 id='method.get_data_w' class='method'><code>fn <a href='#method.get_data_w' class='fnname'>get_data_w</a>&lt;W: <a class='trait' href='../zookeeper/trait.Watcher.html' title='zookeeper::Watcher'>Watcher</a> + 'static&gt;(&amp;self, path: &amp;<a href='https://doc.rust-lang.org/nightly/std/primitive.str.html'>str</a>, watcher: W) -&gt; <a class='type' href='../zookeeper/type.ZkResult.html' title='zookeeper::ZkResult'>ZkResult</a>&lt;<a href='https://doc.rust-lang.org/nightly/std/primitive.tuple.html'>(<a class='struct' href='https://doc.rust-lang.org/nightly/collections/vec/struct.Vec.html' title='collections::vec::Vec'>Vec</a>&lt;<a href='https://doc.rust-lang.org/nightly/std/primitive.u8.html'>u8</a>&gt;, <a class='struct' href='../zookeeper/struct.Stat.html' title='zookeeper::Stat'>Stat</a>)</a>&gt;</code></h4>
+<h4 id='method.set_acl' class='method'><code>fn <a href='#method.set_acl' class='fnname'>set_acl</a>(&amp;self, path: &amp;<a href='https://doc.rust-lang.org/nightly/std/primitive.str.html'>str</a>, acl: <a class='struct' href='https://doc.rust-lang.org/nightly/collections/vec/struct.Vec.html' title='collections::vec::Vec'>Vec</a>&lt;<a class='struct' href='../zookeeper/struct.Acl.html' title='zookeeper::Acl'>Acl</a>&gt;, version: <a href='https://doc.rust-lang.org/nightly/std/primitive.i32.html'>i32</a>) -&gt; <a class='type' href='../zookeeper/type.ZkResult.html' title='zookeeper::ZkResult'>ZkResult</a>&lt;<a class='struct' href='../zookeeper/struct.Stat.html' title='zookeeper::Stat'>Stat</a>&gt;</code></h4>
+<h4 id='method.set_data' class='method'><code>fn <a href='#method.set_data' class='fnname'>set_data</a>(&amp;self, path: &amp;<a href='https://doc.rust-lang.org/nightly/std/primitive.str.html'>str</a>, data: <a class='struct' href='https://doc.rust-lang.org/nightly/collections/vec/struct.Vec.html' title='collections::vec::Vec'>Vec</a>&lt;<a href='https://doc.rust-lang.org/nightly/std/primitive.u8.html'>u8</a>&gt;, version: <a href='https://doc.rust-lang.org/nightly/std/primitive.i32.html'>i32</a>) -&gt; <a class='type' href='../zookeeper/type.ZkResult.html' title='zookeeper::ZkResult'>ZkResult</a>&lt;<a class='struct' href='../zookeeper/struct.Stat.html' title='zookeeper::Stat'>Stat</a>&gt;</code></h4>
+<h4 id='method.close' class='method'><code>fn <a href='#method.close' class='fnname'>close</a>(&amp;self) -&gt; <a class='type' href='../zookeeper/type.ZkResult.html' title='zookeeper::ZkResult'>ZkResult</a>&lt;<a href='https://doc.rust-lang.org/nightly/std/primitive.tuple.html'>()</a>&gt;</code></h4>
+</div></section>
+    <section id='search' class="content hidden"></section>
+
+    <section class="footer"></section>
+
+    <div id="help" class="hidden">
+        <div>
+            <div class="shortcuts">
+                <h1>Keyboard Shortcuts</h1>
+
+                <dl>
+                    <dt>?</dt>
+                    <dd>Show this help dialog</dd>
+                    <dt>S</dt>
+                    <dd>Focus the search field</dd>
+                    <dt>&larrb;</dt>
+                    <dd>Move up in search results</dd>
+                    <dt>&rarrb;</dt>
+                    <dd>Move down in search results</dd>
+                    <dt>&#9166;</dt>
+                    <dd>Go to active search result</dd>
+                </dl>
+            </div>
+
+            <div class="infos">
+                <h1>Search Tricks</h1>
+
+                <p>
+                    Prefix searches with a type followed by a colon (e.g.
+                    <code>fn:</code>) to restrict the search to a given type.
+                </p>
+
+                <p>
+                    Accepted types are: <code>fn</code>, <code>mod</code>,
+                    <code>struct</code>, <code>enum</code>,
+                    <code>trait</code>, <code>type</code>, <code>macro</code>,
+                    and <code>const</code>.
+                </p>
+
+                <p>
+                    Search functions by type signature (e.g.
+                    <code>vec -> usize</code>)
+                </p>
+            </div>
+        </div>
+    </div>
+
+    
+
+    <script>
+        window.rootPath = "../";
+        window.currentCrate = "zookeeper";
+        window.playgroundUrl = "";
+    </script>
+    <script src="../jquery.js"></script>
+    <script src="../main.js"></script>
+    
+    <script async src="../search-index.js"></script>
+</body>
+</html>
