@@ -2,6 +2,7 @@ use consts::{OpCode, ZkError, ZkState};
 use proto::{ByteBuf, ConnectRequest, ConnectResponse, ReadFrom, ReplyHeader, RequestHeader, WriteTo};
 use watch::WatchMessage;
 use zookeeper::{RawResponse, RawRequest};
+use listeners::{ListenerSet};
 
 use byteorder::{BigEndian, ByteOrder};
 use bytes::{Buf, RingBuf};
@@ -55,11 +56,12 @@ struct ZkHandler {
     watch_sender: Sender<WatchMessage>,
     conn_resp: ConnectResponse,
     zxid: i64,
-    ping_sent: PreciseTime
+    ping_sent: PreciseTime,
+    state_listeners: ListenerSet<ZkState>,
 }
 
 impl ZkHandler {
-    fn new(addrs: Vec<SocketAddr>, timeout_ms: u64, watch_sender: Sender<WatchMessage>) -> ZkHandler {
+    fn new(addrs: Vec<SocketAddr>, timeout_ms: u64, watch_sender: Sender<WatchMessage>, state_listeners: ListenerSet<ZkState>) -> ZkHandler {
         ZkHandler{
             sock: unsafe{mem::dropped()},
             state: ZkState::NotConnected,
@@ -72,7 +74,8 @@ impl ZkHandler {
             watch_sender: watch_sender,
             conn_resp: ConnectResponse::initial(timeout_ms),
             zxid: 0,
-            ping_sent: PreciseTime::now()
+            ping_sent: PreciseTime::now(),
+            state_listeners: state_listeners,
         }
     }
 
@@ -84,6 +87,12 @@ impl ZkHandler {
     fn reregister(&mut self, event_loop: &mut EventLoop<Self>, events: EventSet) {
         event_loop.reregister(&self.sock, ZK, events, PollOpt::edge() | PollOpt::oneshot())
         .ok().expect("Failed to reregister ZK handle");
+    }
+
+    fn notify_state(&self, old_state: ZkState, new_state: ZkState) {
+        if(new_state != old_state) {
+            self.state_listeners.notify(&new_state);
+        }
     }
 
     fn handle_response(&mut self, event_loop: &mut EventLoop<Self>) {
@@ -113,7 +122,7 @@ impl ZkHandler {
 
         debug!("handle_response in {:?} state [{}]", self.state, data.bytes().len());
 
-        if self.state != ZkState::NotConnected {
+        if self.state != ZkState::Connecting {
             let header = match ReplyHeader::read_from(&mut data) {
                 Ok(header) => header,
                 Err(e) => {
@@ -136,7 +145,9 @@ impl ZkHandler {
                 _ => match self.inflight.pop_front() {
                     Some(request) => {
                         if request.opcode == OpCode::CloseSession {
+                            let old_state = self.state;
                             self.state = ZkState::Closed;
+                            self.notify_state(old_state, self.state);
                             event_loop.shutdown();
                         }
                         self.send_response(request, response);
@@ -156,9 +167,12 @@ impl ZkHandler {
             };
             info!("Connected: {:?}", self.conn_resp);
             self.timeout_ms = self.conn_resp.timeout / 3 * 2;
+
+            let old_state = self.state;
             self.state = if self.conn_resp.read_only {
                 ZkState::ConnectedReadOnly } else {
                 ZkState::Connected };
+            self.notify_state(old_state, self.state);
         }
     }
 
@@ -182,7 +196,10 @@ impl ZkHandler {
     }
 
     fn reconnect(&mut self, event_loop: &mut EventLoop<Self>) {
+        let old_state = self.state;
         self.state = ZkState::Connecting;
+        self.notify_state(old_state, self.state);
+        
         // TODO only until session times out
         loop {
             self.buffer.clear();
@@ -280,7 +297,10 @@ impl Handler for ZkHandler {
                 //         Err(e) => panic!("Reader/Writer: Event died {}", e)
                 //     }
                 // }
+                let old_state = self.state;
                 self.state = ZkState::NotConnected;
+                self.notify_state(old_state, self.state);
+                
                 self.reconnect(event_loop);
             }
         }
@@ -329,10 +349,10 @@ pub struct ZkIo {
 }
 
 impl ZkIo {
-    pub fn new(addrs: Vec<SocketAddr>, timeout: Duration, event_sender: Sender<WatchMessage>) -> ZkIo {
+    pub fn new(addrs: Vec<SocketAddr>, timeout: Duration, event_sender: Sender<WatchMessage>, state_listeners: ListenerSet<ZkState>) -> ZkIo {
         let event_loop = EventLoop::new().unwrap();
         let timeout_ms = timeout.as_secs() * 1000 + timeout.subsec_nanos() as u64 / 1000000;
-        let handler = ZkHandler::new(addrs, timeout_ms, event_sender);
+        let handler = ZkHandler::new(addrs, timeout_ms, event_sender, state_listeners);
         ZkIo{event_loop: event_loop, handler: handler}
     }
 
