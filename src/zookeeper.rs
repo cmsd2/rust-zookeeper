@@ -55,7 +55,6 @@ pub trait ZooKeeperClient {
 
     fn set_data(&self, path: &str, data: Vec<u8>, version: i32) -> ZkResult<Stat>;
 
-    //fn add_listener(&self, chan: Sender<ZkState>) -> Subscription;
     fn add_listener<Listener>(&self, listener: Listener) -> Subscription
     where Listener: Fn(ZkState) + Send + 'static;
 

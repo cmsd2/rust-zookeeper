@@ -160,6 +160,7 @@ impl ReadFrom for Stat {
     }
 }
 
+#[derive(Debug)]
 pub struct ConnectRequest {
     protocol_version: i32,
     last_zxid_seen: i64,

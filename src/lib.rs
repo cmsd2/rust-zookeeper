@@ -1,4 +1,5 @@
 #![feature(unboxed_closures)]
+#![feature(mpsc_select)]
 
 #![deny(unused_mut)]
 extern crate byteorder;
@@ -15,8 +16,10 @@ extern crate time;
 extern crate snowflake;
 extern crate schedule_recv;
 extern crate rand;
+extern crate libc;
 extern crate uuid;
 extern crate regex;
+extern crate kernel32;
 
 pub use consts::*;
 pub use proto::{Acl, Stat, WatchedEvent};
@@ -39,3 +42,4 @@ pub mod recipes;
 pub mod curator;
 pub mod retry;
 mod time_ext;
+mod threads;
