@@ -14,6 +14,7 @@ extern crate log;
 extern crate mio;
 extern crate time;
 extern crate snowflake;
+extern crate libc;
 
 pub use consts::*;
 pub use proto::{Acl, Stat, WatchedEvent};
@@ -33,3 +34,4 @@ mod zoodefs;
 mod zookeeper;
 mod zookeeper_ext;
 pub mod recipes;
+mod threads;

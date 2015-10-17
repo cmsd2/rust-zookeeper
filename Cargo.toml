@@ -21,6 +21,7 @@ mio = { git = "https://github.com/carllerche/mio.git" }
 num = "0.1"
 time = "0.1"
 snowflake = "1.0.0"
+libc = "0.1.10"
 
 [dev-dependencies]
 env_logger = "0.3"

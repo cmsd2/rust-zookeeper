@@ -13,6 +13,7 @@ use std::sync::mpsc;
 use zookeeper::{CreateMode, Watcher, WatchedEvent, ZooKeeper};
 use zookeeper::acls;
 use zookeeper::recipes::cache::{PathChildrenCache};
+use zookeeper::recipes::mutex::{InterProcessMutex, InterProcessLock};
 
 struct LoggingWatcher;
 impl Watcher for LoggingWatcher {
@@ -119,6 +120,25 @@ fn zk_example() {
             Ok(_) => panic!("Shouldn't happen")
         }
     });
+
+    let m = Arc::new(InterProcessMutex::new(zk_arc.clone(), "/", "test_mutex", 10));
+
+    println!("acquiring mutex first time");
+    let result_1 = m.acquire(None).ok();
+    println!("result: {:?}", result_1);
+
+    println!("acquiring mutex second time");
+    let result_2 = m.acquire(None).ok();
+    println!("result: {:?}", result_2);
+    
+    let zk_arc_captured_2 = zk_arc.clone();
+    let m_captured = m.clone();
+    let m_fail_acquire = thread::spawn(move || {
+        let result = m_captured.acquire(None).ok();
+        println!("should not be able to acquire in separate threads: {:?}", result);
+    });
+    m_fail_acquire.join();
+        
 
     println!("press enter to exit example");
     io::stdin().read_line(&mut tmp).unwrap();
