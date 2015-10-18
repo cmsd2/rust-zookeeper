@@ -106,6 +106,26 @@ fn zk_example() {
         };
     });
 
+    let m = Arc::new(InterProcessMutex::new(zk_arc.clone(), "/", "test_mutex", 10));
+
+    println!("acquiring mutex first time");
+    let result_1 = m.acquire(None).ok();
+    println!("result: {:?}", result_1);
+
+    println!("acquiring mutex second time");
+    let result_2 = m.acquire(None).ok();
+    println!("result: {:?}", result_2);
+
+    println!("releasing mutex first time");
+    let result_3 = m.release().ok();
+    println!("result: {:?}", result_3);
+
+    let m_captured = m.clone();
+    let m_acquire = thread::spawn(move || {
+        let result = m_captured.acquire(None).ok();
+        println!("should be able to acquire in separate thread after it becomes available: {:?}", result);
+    });
+    
     println!("press enter to close client");
     io::stdin().read_line(&mut tmp).unwrap();
 
@@ -121,24 +141,10 @@ fn zk_example() {
         }
     });
 
-    let m = Arc::new(InterProcessMutex::new(zk_arc.clone(), "/", "test_mutex", 10));
-
-    println!("acquiring mutex first time");
-    let result_1 = m.acquire(None).ok();
-    println!("result: {:?}", result_1);
-
-    println!("acquiring mutex second time");
-    let result_2 = m.acquire(None).ok();
-    println!("result: {:?}", result_2);
-    
-    let zk_arc_captured_2 = zk_arc.clone();
-    let m_captured = m.clone();
-    let m_fail_acquire = thread::spawn(move || {
-        let result = m_captured.acquire(None).ok();
-        println!("should not be able to acquire in separate threads: {:?}", result);
-    });
-    m_fail_acquire.join();
-        
+    println!("releasing mutex second time");
+    let result_4 = m.release().ok();
+    println!("released result: {:?}", result_4);
+    m_acquire.join().unwrap();
 
     println!("press enter to exit example");
     io::stdin().read_line(&mut tmp).unwrap();

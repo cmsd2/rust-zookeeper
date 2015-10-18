@@ -1,12 +1,17 @@
 use std::sync::{Arc, Mutex};
 use std::cell::RefCell;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::mpsc;
+use std::sync::mpsc::{Receiver};
+use std::thread;
+use std::cmp;
 use zookeeper::{ZkResult, ZooKeeper};
 use consts::*;
 use acls;
 use std::time::Duration;
 use threads::*;
 use paths;
+use ::WatchedEvent;
 
 pub struct LockInternals {
     lock_path: String,
@@ -56,7 +61,7 @@ impl LockInternals {
             return Ok(true)
         }
 
-        let result = try!(self.create_node());
+        let result = try!(self.create_node_loop(duration));
 
         if result {
             debug!("acquired mutex for thread {:?}", thread_id);
@@ -64,6 +69,97 @@ impl LockInternals {
             let mut data = self.thread_lock.lock().unwrap();
 
             data.acquire(thread_id);
+        } else {
+            debug!("failed to acquire mutex for thread {:?}", thread_id);
+        }
+
+        Ok(result)
+    }
+
+    //TODO don't spawn thread per timer
+    fn timer_oneshot(duration: Duration) -> Receiver<()> {
+        let (tx, rx) = mpsc::channel();
+        let mut time_left = duration.clone();
+        let long_time_s: u64 = 1000000;
+        thread::spawn(move || {
+            let mut done = false;
+            while !done {
+                let ms = (cmp::min(time_left.as_secs(), long_time_s) as u32) * 1000 + (time_left.subsec_nanos() / 1000);
+                
+                thread::sleep_ms(ms);
+                
+                time_left = time_left - Duration::from_millis(ms as u64);
+                done = time_left.as_secs() == 0 && time_left.subsec_nanos() < 1000000;
+                
+                if tx.send(()).is_err() {
+                    break;
+                }
+            }
+        });
+        rx
+    }
+
+    fn create_node_loop(&self, duration: Option<Duration>) -> ZkResult<bool> {
+        let lock_path = self.get_lock_path();
+
+        let (tx, rx) = mpsc::channel();
+        let mut done = false;
+        let mut result = false;
+        let (_timeout_tx, timeout) = match duration {
+            Some(d) => (None, Self::timer_oneshot(d)),
+            None => {
+                let (never_tx, never) = mpsc::channel();
+                (Some(never_tx), never)
+            }
+        };
+
+
+
+        while !done {
+            let tx_clone = tx.clone();
+            let exists_watcher = move |event: &WatchedEvent| {
+                debug!("watched event: {:?}", event);
+                tx_clone.send(true);
+            };
+            
+            let maybe_stat = self.zk.exists_w(lock_path, exists_watcher);
+
+            match maybe_stat {
+                Ok(stat) => {
+                    // node exists
+                    // wait for watcher
+                    debug!("lock node exists {:?}", lock_path);
+
+                    done = select!(
+                        lock_result = rx.recv() => {
+                            debug!("watcher for {:?} returned {:?}", lock_path, lock_result);
+                            result = match lock_result {
+                                Ok(exists) => exists,
+                                Err(recv_err) => {
+                                    debug!("error receiving from watcher channel: {:?}", recv_err);
+                                    return Err(ZkError::APIError);
+                                }
+                            };
+                            result
+                        },
+                        timeout_result = timeout.recv() => {
+                            debug!("timeout for {:?}: {:?}", lock_path, timeout_result);
+                            true
+                        }
+                    );
+                }
+                Err(ZkError::NoNode) => {
+                    // node didn't exist when we checked, but could now...
+                    debug!("lock node doesn't exist {:?}", lock_path);                    
+                    result = try!(self.create_node());
+                    done = result;
+                }
+                Err(e) => {
+                    debug!("error watching lock node {:?}: {:?}", lock_path, e);
+                    return Err(e);
+                }
+            }
+
         }
 
         Ok(result)
