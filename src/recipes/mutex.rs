@@ -12,6 +12,7 @@ use std::time::Duration;
 use threads::*;
 use paths;
 use ::WatchedEvent;
+use schedule_recv as timer;
 
 pub struct LockInternals {
     lock_path: String,
@@ -76,27 +77,9 @@ impl LockInternals {
         Ok(result)
     }
 
-    //TODO don't spawn thread per timer
     fn timer_oneshot(duration: Duration) -> Receiver<()> {
-        let (tx, rx) = mpsc::channel();
-        let mut time_left = duration.clone();
-        let long_time_s: u64 = 1000000;
-        thread::spawn(move || {
-            let mut done = false;
-            while !done {
-                let ms = (cmp::min(time_left.as_secs(), long_time_s) as u32) * 1000 + (time_left.subsec_nanos() / 1000);
-                
-                thread::sleep_ms(ms);
-                
-                time_left = time_left - Duration::from_millis(ms as u64);
-                done = time_left.as_secs() == 0 && time_left.subsec_nanos() < 1000000;
-                
-                if tx.send(()).is_err() {
-                    break;
-                }
-            }
-        });
-        rx
+        let ms = ((duration.as_secs() * 1000) as u32) + duration.subsec_nanos() / 1000000;
+        timer::oneshot_ms(ms)
     }
 
     fn create_node_loop(&self, duration: Option<Duration>) -> ZkResult<bool> {

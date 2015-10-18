@@ -125,6 +125,16 @@ fn zk_example() {
         let result = m_captured.acquire(None).ok();
         println!("should be able to acquire in separate thread after it becomes available: {:?}", result);
     });
+
+    let m_captured_2 = m.clone();
+    let m_acquire_2 = thread::spawn(move || {
+        let result = m_captured_2.acquire(Some(Duration::from_millis(100))).ok();
+        println!("should time out if not available: {:?}", result);
+    });
+
+    println!("mutex acquire failure should timeout...");
+    m_acquire_2.join().unwrap();
+    println!("mutex timeout ok");
     
     println!("press enter to close client");
     io::stdin().read_line(&mut tmp).unwrap();
