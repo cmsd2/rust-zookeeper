@@ -12,6 +12,8 @@ use std::sync::atomic::{AtomicIsize, Ordering};
 use std::sync::mpsc::{Sender, sync_channel, SyncSender};
 use std::time::Duration;
 use std::thread;
+use uuid::Uuid;
+use paths;
 
 pub type ZkResult<T> = result::Result<T, ZkError>;
 
@@ -159,6 +161,25 @@ impl ZooKeeper {
 
     pub fn create(&self, path: &str, data: Vec<u8>, acl: Vec<Acl>, mode: CreateMode) -> ZkResult<String> {
         let req = CreateRequest{path: try!(self.path(path)), data: data, acl: acl, flags: mode as i32};
+
+        let response: CreateResponse = try!(self.request(OpCode::Create, self.xid(), req, None));
+
+        Ok(self.cut_chroot(response.path))
+    }
+
+    /// Create node with protection.
+    /// Passes the node name portion of the path through format!("_c_{}-{}", uuid, node_name)
+    /// where uuid is a v4 random uuid.
+    /// this is useful with sequential mode in that it allows the client to calculate which
+    /// node was created by string matching on the uuid.
+    /// this is used in the event that the server was unable to tell the client e.g. due to
+    /// connection loss.
+    pub fn create_p(&self, path: &str, data: Vec<u8>, acl: Vec<Acl>, mode: CreateMode) -> ZkResult<String> {
+        let (base_path, node_name) = paths::split_path(path);
+        let protected_node_name = format!("_c_{}-{}", Uuid::new_v4().to_hyphenated_string(), node_name);
+        let protected_path = paths::make_path(base_path, &protected_node_name);
+        
+        let req = CreateRequest{path: try!(self.path(&protected_path)), data: data, acl: acl, flags: mode as i32};
 
         let response: CreateResponse = try!(self.request(OpCode::Create, self.xid(), req, None));
 

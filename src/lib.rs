@@ -16,6 +16,7 @@ extern crate time;
 extern crate snowflake;
 extern crate libc;
 extern crate schedule_recv;
+extern crate uuid;
 
 pub use consts::*;
 pub use proto::{Acl, Stat, WatchedEvent};
