@@ -47,6 +47,10 @@ fn zk_example() {
 
     println!("created -> {:?}", path);
 
+    let path_seq = zk.create_p("/test_seq", vec![1,2], acls::OPEN_ACL_UNSAFE.clone(), CreateMode::EphemeralSequential);
+
+    println!("created -> {:?}", path_seq);
+
     let exists = zk.exists("/test", true);
 
     println!("exists -> {:?}", exists);

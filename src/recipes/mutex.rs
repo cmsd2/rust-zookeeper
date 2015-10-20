@@ -14,6 +14,39 @@ use paths;
 use ::WatchedEvent;
 use schedule_recv as timer;
 
+/*
+Locks in zookeeper use ephemeral sequential nodes.
+Each time a process wants to acquire a lock it doesn't already own, it
+creates a new node to indicate its desire to acquire the lock.
+The node's directory will be the same for all users of the lock.
+The name of the node that is created will be something like
+"_c_12345678-1234-1234-12345678-lockname-000001"
+The name of the lock as far as users of the locks api are concerned is "lockname".
+The numeric suffix is added by zookeeper to make each node with a given name unique.
+The uuid prefix is added by this implementation to guard against sequential nodes
+being created but notification of success being lost across a reconnect.
+Everything before the final hyphen is opaque to zookeeper.
+Once the node has been created, the lock implementation will query for all
+the child nodes in the given path that have lockname in their name.
+It sorts these by numeric sequence number in ascending order.
+A mutex normally only permits one owner at a time, while semaphores permit
+some arbitrary number of owners. This is called the maximum number of leases.
+If there are a number of nodes equal or greater than the max leases appearing
+before our node in the sorted list then we don't yet hold the lock.
+To wait for the lock, we watch the node in position (our_pos - max_leases).
+TODO is this sufficient? shouldn't we watch the range of elements (our_pos-max_leases..our_pos] ?
+When that node is deleted, we check again whether we hold the lock or not by examining our
+position in the sorted list of nodes.
+[1,2] max_leases=1. our_id=2. watch node 1 (index 0)
+[2,3,4,5,6] max_leases=2. our_id=5. watch node 3 (index 1)
+If nodes 2 and 3 release in that order, then when we get notified of 3's deletion we'll
+be the holder of the lock.
+If node 3 releases first, then we won't. nodes 2 and 4 will still hold it, and we'll start
+a new watch on node 2.
+If node 4 releases after node 3, then at that point, we'll hold the lock along with node 2,
+but we won't know it yet until node 2 releases.
+*/
+
 pub struct LockInternals {
     lock_path: String,
     zk: Arc<ZooKeeper>,
