@@ -20,7 +20,7 @@ Each time a process wants to acquire a lock it doesn't already own, it
 creates a new node to indicate its desire to acquire the lock.
 The node's directory will be the same for all users of the lock.
 The name of the node that is created will be something like
-"_c_12345678-1234-1234-12345678-lockname-000001"
+"_c_12345678-1234-1234-12345678-lockname000001"
 The name of the lock as far as users of the locks api are concerned is "lockname".
 The numeric suffix is added by zookeeper to make each node with a given name unique.
 The uuid prefix is added by this implementation to guard against sequential nodes
@@ -48,7 +48,8 @@ but we won't know it yet until node 2 releases.
 */
 
 pub struct LockInternals {
-    lock_path: String,
+    base_path: String,
+    name: String,
     zk: Arc<ZooKeeper>,
     max_leases: u32,
     thread_lock: Arc<Mutex<LockData>>
@@ -58,23 +59,34 @@ impl LockInternals {
 
     pub fn new(zk: Arc<ZooKeeper>, path: &str, lock_name: &str, max_leases: u32) -> LockInternals {
         LockInternals {
-            lock_path: Self::make_lock_path(path, lock_name),
+            base_path: path.to_owned(),
+            name: lock_name.to_owned(),
             zk: zk.clone(),
             max_leases: max_leases,
             thread_lock: Arc::new(Mutex::new(LockData::new()))
         }
     }
 
+    /// checks if a thread in this process owns the lock
+    /// by examining local state.
     pub fn is_acquired_in_this_process(&self) -> bool {
         self.owner().is_some()
     }
 
+    /// returns the thread id holding the lock if the
+    /// lock is held by a thread in this process.
+    /// otherwise returns none.
     pub fn owner(&self) -> Option<ThreadId> {
         let data = self.thread_lock.lock().unwrap();
 
         data.owner()
     }
 
+    /// decrement the depth of the lock owned by the current thread.
+    /// if the count is now 0 then release the lock entirely by
+    /// deleting the node in zookeeper.
+    /// this wakes the thread (if any) that is watching our node for
+    /// changes.
     pub fn release(&self) -> LockResult<()> {
         let thread_id = ThreadId::current_thread_id();
         let lock_path = self.get_lock_path();
@@ -85,7 +97,15 @@ impl LockInternals {
 
         Ok(())
     }
-             
+
+    /// attempt to acquire the lock.
+    /// if the thread already holds the lock, the depth will be incremented.
+    /// otherwise, create a node in zookeeper to place this thred in the
+    /// queue.
+    /// then enter a blocking loop in which we wait with a watch for an
+    /// earlier item to release the lock, and when it does, recheck to see
+    /// if we have acquired it.
+    /// acquisition of the lock is implied by our position in the fifo queue.
     pub fn acquire(&self, duration: Option<Duration>) -> LockResult<bool> {
         let thread_id = ThreadId::current_thread_id();
 
@@ -110,6 +130,9 @@ impl LockInternals {
         Ok(result)
     }
 
+    /// sets up a timer which will fire after a certain time.
+    /// returns the receiver end of the channel to which a message
+    /// will be posted to signify the time is up.
     fn timer_oneshot(duration: Duration) -> Receiver<()> {
         let ms = ((duration.as_secs() * 1000) as u32) + duration.subsec_nanos() / 1000000;
         timer::oneshot_ms(ms)
@@ -138,7 +161,7 @@ impl LockInternals {
                 tx_clone.send(true);
             };
             
-            let maybe_stat = self.zk.exists_w(lock_path, exists_watcher);
+            let maybe_stat = self.zk.exists_w(&lock_path, exists_watcher);
 
             match maybe_stat {
                 Ok(stat) => {
@@ -201,30 +224,31 @@ impl LockInternals {
         }
     }
 
-    /*
-    * if already locked by current thread, then increment lock and return true
-    * otherwise return false
-    */
+    /// increments depth of the reentrant lock if owned by current thread.
+    ///
+    /// if already locked by current thread, then increment lock and return true
+    /// otherwise return false
     fn incr_lock(&self, thread_id: ThreadId) -> bool {
         let mut data = self.thread_lock.lock().unwrap();
 
         data.incr(thread_id)
     }
 
-    /*
-    * decrement lock.
-    * return true if unlocked, false otherwise.
-    */
+    /// decrement depth of lock held by current thread.
+    ///
+    /// return true if unlocked, false otherwise.
     fn decr_lock(&self, thread_id: ThreadId) -> bool {
         let mut data = self.thread_lock.lock().unwrap();
 
         data.decr(thread_id)
     }
 
-    pub fn get_lock_path<'a>(&'a self) -> &'a str {
-        &self.lock_path
+    pub fn get_lock_path<'a>(&'a self) -> String {
+        Self::make_lock_path(&self.base_path, &self.name)
     }
-    
+
+    /// returns the path to the node to create when requesting
+    /// the lock.
     pub fn make_lock_path(path: &str, name: &str) -> String {
         paths::make_path(path, name)
     }
@@ -233,6 +257,7 @@ impl LockInternals {
 pub struct LockData {
     thread_id: Option<ThreadId>,
     lock_count: u32,
+    lock_path: Option<String>,
 }
 
 impl LockData {
@@ -240,6 +265,7 @@ impl LockData {
         LockData {
             thread_id: None,
             lock_count: 0,
+            lock_path: None,
         }
     }
 
@@ -247,15 +273,31 @@ impl LockData {
         if self.lock_count != 0 {
             self.thread_id
         } else {
+            assert!(self.thread_id.is_none());
             None
         }
     }
 
+    /// the depth of the reentrant lock
+    /// 0 implies the lock is not held by a thread
+    /// in this process.
     pub fn get_lock_count(&self) -> u32 {
         self.lock_count
     }
 
-    pub fn incr(&mut self, thread_id: ThreadId) -> bool {
+    pub fn set_lock_path(&mut self, lock_path: Option<String>) {
+        self.lock_path = lock_path;
+    }
+
+    /// the actual path of the node as created by zookeeper
+    pub fn get_lock_path<'a>(&'a self) -> Option<&'a str> {
+        self.lock_path.as_ref().map(|s| &s[..])
+    }
+
+    /// if the given thread holds the lock then
+    /// increment the lock count and return true
+    /// returns false otherwise.
+    fn incr(&mut self, thread_id: ThreadId) -> bool {
         if self.thread_id == Some(thread_id) {
             self.incr_and_get_lock_count();
             true
@@ -264,7 +306,11 @@ impl LockData {
         }
     }
 
-    pub fn decr(&mut self, thread_id: ThreadId) -> bool {
+    /// if the given thread holds the lock then
+    /// decrement the lock count.
+    /// returns true if the lock is now unlocked,
+    /// false otherwise.
+    fn decr(&mut self, thread_id: ThreadId) -> bool {
         if self.thread_id != Some(thread_id) || self.lock_count == 0 {
             panic!("can't release lock: not owned by thread");
         } else {
@@ -272,6 +318,10 @@ impl LockData {
         }
     }
 
+    /// if the lock is not already held by a thread in this process
+    /// then ensure the owner is the given thread and increment the lock count.
+    /// returns some(thread_id) if the thread owns the lock
+    /// returns false otherwise.
     pub fn acquire(&mut self, thread_id: ThreadId) -> Option<ThreadId> {
         if self.thread_id == Some(thread_id) {
             let count = self.incr_and_get_lock_count();
@@ -288,12 +338,14 @@ impl LockData {
         }
     }
 
+    /// decrements the depth of the lock if held by the given thread.
+    /// returns some(thread_id) if the thread still holds the lock.
+    /// returns none otherwise.
     pub fn release(&mut self, thread_id: ThreadId) -> Option<ThreadId> {
         if self.decr(thread_id) {
-            None
-        } else {
-            self.thread_id
+            self.thread_id = None;
         }
+        self.thread_id
     }
 
     fn incr_and_get_lock_count(&mut self) -> u32 {
@@ -336,10 +388,6 @@ impl InterProcessMutex {
         InterProcessMutex {
             internals: LockInternals::new(zk, path, lock_name, max_leases)
         }
-    }
-
-    pub fn get_lock_path<'a>(&'a self) -> &'a str {
-        &self.internals.lock_path
     }
 }
 
