@@ -2,7 +2,7 @@ use std::sync::{Arc, Mutex};
 use std::cell::RefCell;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc;
-use std::sync::mpsc::{Receiver};
+use std::sync::mpsc::{Sender, Receiver};
 use std::thread;
 use std::cmp;
 use zookeeper::{ZkResult, ZooKeeper};
@@ -138,20 +138,26 @@ impl LockInternals {
         timer::oneshot_ms(ms)
     }
 
+    /// if duration is some, return a receiver from the timer.
+    /// if duration is none, return a sender and receiver that will do never fire.
+    /// do not let the sender go out of scope until you're done with the receiver.
+    fn maybe_timer_oneshot(duration: Option<Duration>) -> (Option<Sender<()>>, Receiver<()>) {
+        match duration {
+            Some(d) => (None, Self::timer_oneshot(d)),
+            None => {
+                let (never_tx, never) = mpsc::channel();
+                (Some(never_tx), never)
+            }
+        }
+    }
+
     fn create_node_loop(&self, duration: Option<Duration>) -> ZkResult<bool> {
         let lock_path = self.get_lock_path();
 
         let (tx, rx) = mpsc::channel();
         let mut done = false;
         let mut result = false;
-        let (_timeout_tx, timeout) = match duration {
-            Some(d) => (None, Self::timer_oneshot(d)),
-            None => {
-                let (never_tx, never) = mpsc::channel();
-                (Some(never_tx), never)
-            }
-        };
-
+        let (_timeout_tx, timeout) = Self::maybe_timer_oneshot(duration);
 
 
         while !done {
