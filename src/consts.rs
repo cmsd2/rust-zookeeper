@@ -44,7 +44,7 @@ enum_from_primitive! {
 }
 
 enum_from_primitive! {
-    #[derive(Clone, Debug)]
+    #[derive(Clone, Debug,PartialEq)]
     pub enum WatchedEventType {
         None = -1,
         NodeCreated = 1,

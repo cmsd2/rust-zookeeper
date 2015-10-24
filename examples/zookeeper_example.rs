@@ -12,8 +12,9 @@ use std::env;
 use std::sync::mpsc;
 use zookeeper::{CreateMode, Watcher, WatchedEvent, ZooKeeper};
 use zookeeper::acls;
-use zookeeper::recipes::cache::{PathChildrenCache};
-use zookeeper::recipes::mutex::{InterProcessMutex, InterProcessLock};
+use zookeeper::recipes::cache::PathChildrenCache;
+use zookeeper::recipes::mutex::InterProcessMutex;
+use zookeeper::recipes::locks::InterProcessLock;
 
 struct LoggingWatcher;
 impl Watcher for LoggingWatcher {
@@ -35,7 +36,7 @@ fn zk_example() {
     let zk_urls = zk_server_urls();
     println!("connecting to {}", zk_urls);
     
-    let zk = ZooKeeper::connect(&*zk_urls, Duration::from_secs(5), LoggingWatcher).unwrap();
+    let zk = ZooKeeper::connect(&*zk_urls, Duration::from_secs(40), LoggingWatcher).unwrap();
 
     let mut tmp = String::new();
 
@@ -47,10 +48,16 @@ fn zk_example() {
 
     println!("created -> {:?}", path);
 
+    println!("press enter to perform create_p");
+    io::stdin().read_line(&mut tmp).unwrap();
+    
     let path_seq = zk.create_p("/test_seq", vec![1,2], acls::OPEN_ACL_UNSAFE.clone(), CreateMode::EphemeralSequential);
 
     println!("created -> {:?}", path_seq);
 
+    println!("press enter to continue past create_p");
+    io::stdin().read_line(&mut tmp).unwrap();
+    
     let exists = zk.exists("/test", true);
 
     println!("exists -> {:?}", exists);
@@ -110,7 +117,7 @@ fn zk_example() {
         };
     });
 
-    let m = Arc::new(InterProcessMutex::new(zk_arc.clone(), "/", "test_mutex", 10));
+    let m = Arc::new(InterProcessMutex::new(zk_arc.clone(), "/", "test_mutex", 1));
 
     println!("acquiring mutex first time");
     let result_1 = m.acquire(None).ok();
@@ -143,6 +150,11 @@ fn zk_example() {
     println!("press enter to close client");
     io::stdin().read_line(&mut tmp).unwrap();
 
+    println!("releasing mutex second time");
+    let result_4 = m.release().ok();
+    println!("released result: {:?}", result_4);
+    m_acquire.join().unwrap();
+
     // The client can be shared between tasks
     let zk_arc_captured = zk_arc.clone();
     thread::spawn(move || {
@@ -154,11 +166,6 @@ fn zk_example() {
             Ok(_) => panic!("Shouldn't happen")
         }
     });
-
-    println!("releasing mutex second time");
-    let result_4 = m.release().ok();
-    println!("released result: {:?}", result_4);
-    m_acquire.join().unwrap();
 
     println!("press enter to exit example");
     io::stdin().read_line(&mut tmp).unwrap();

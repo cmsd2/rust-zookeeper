@@ -47,6 +47,26 @@ pub fn split_protected_name<'a>(name: &'a str) -> Option<(&'a str, &'a str)> {
     })
 }
 
+/// tries to match the given protected name against the uuid and name
+/// returns the suffix after the name if it matches
+/// returns none otherwise
+/// for a name e.g. "lock" and uuid e.g. "32143121-1212-1212-1212-332493212345"
+/// and matching protected name "_c_32143121-1212-1212-1212-332493212345-lock000001"
+/// the suffix is 000001
+pub fn split_protected_name_suffix<'a>(name: &str, protected_name: &'a str) -> Option<(&'a str, &'a str, &'a str)> {
+    let name_len = name.len();
+        
+    split_protected_name(protected_name).map(|parts| {
+        let (uuid, name_and_suffix) = parts;
+                                             
+        if name_and_suffix.starts_with(name) {
+            (uuid, &name_and_suffix[0..name_len], &name_and_suffix[name_len..])
+        } else {
+            (uuid, name_and_suffix, "")
+        }
+    })
+}
+
 #[cfg(test)]
 mod tests {
 
@@ -72,5 +92,13 @@ mod tests {
         assert_eq!(split_protected_name("foo"), None);
         assert_eq!(split_protected_name("_c_12f4a678-1a34-1b34-1c34-1a3f56789012-name001"), Some(("12f4a678-1a34-1b34-1c34-1a3f56789012", "name001")));
         assert_eq!(split_protected_name("_c_12345678-1234-1234-1234-123456789012-name"), Some(("12345678-1234-1234-1234-123456789012", "name")));
+    }
+
+    #[test]
+    pub fn test_split_protected_name_suffix() {
+        assert_eq!(split_protected_name_suffix("lock", "blah"), None);
+        assert_eq!(split_protected_name_suffix("lock", "_c_uuid-lock"), None);
+        assert_eq!(split_protected_name_suffix("name", "_c_12345678-1234-1234-1234-123456789012-name"), Some(("12345678-1234-1234-1234-123456789012", "name", "")));
+        assert_eq!(split_protected_name_suffix("name", "_c_12345678-1234-1234-1234-123456789012-name00001"), Some(("12345678-1234-1234-1234-123456789012", "name", "00001")));
     }
 }

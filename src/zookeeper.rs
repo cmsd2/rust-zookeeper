@@ -204,9 +204,18 @@ impl ZooKeeper {
                     
             }*/
 
-                match try!(self.recover_created_path(path, &hyphenated_uuid)) {
-                    Some(created_path) => Ok(self.cut_chroot(created_path)),
-                    None => Err(response.err().unwrap())
+                match self.recover_created_path(path, &hyphenated_uuid) {
+                    Ok(path_response) => {
+                        debug!("recovered path {:?}", path_response);
+                        match path_response {
+                            Some(created_path) => Ok(self.cut_chroot(created_path)),
+                            None => Err(response.err().unwrap())
+                        }
+                    },
+                    Err(path_err) => {
+                        info!("error recovering path: {:?}", path_err);
+                        Err(response.err().unwrap())
+                    }
                 }
             },
             Err(err) => {
