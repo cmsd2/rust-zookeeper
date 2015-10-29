@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use consts::{WatchedEventType, ZkError, ZkState};
 use paths::make_path;
 use proto::WatchedEvent;
-use zookeeper::{ZkResult, ZooKeeper};
+use zookeeper::{ZkResult, ZooKeeper, ZooKeeperClient};
 use zookeeper_ext::ZooKeeperExt;
 use listeners::{ListenerSet, Subscription};
 

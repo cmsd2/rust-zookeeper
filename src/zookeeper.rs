@@ -27,6 +27,41 @@ pub struct RawResponse {
     pub data: ByteBuf,
 }
 
+pub trait ZooKeeperClient {
+    fn connect<W>(connect_string: &str, timeout: Duration, watcher: W) -> ZkResult<ZooKeeper>
+    where W: Watcher + 'static;
+
+    fn add_auth(&self, scheme: &str, auth: Vec<u8>) -> ZkResult<()>;
+
+    fn create(&self, path: &str, data: Vec<u8>, acl: Vec<Acl>, mode: CreateMode) -> ZkResult<String>;
+
+    fn delete(&self, path: &str, version: i32) -> ZkResult<()>;
+
+    fn exists(&self, path: &str, watch: bool) -> ZkResult<Option<Stat>>;
+
+    fn exists_w<W: FnOnce(&WatchedEvent) + Send + 'static>(&self, path: &str, watcher: W) -> ZkResult<Stat>;
+
+    fn get_acl(&self, path: &str) -> ZkResult<(Vec<Acl>, Stat)>;
+
+    fn get_children_w<W: FnOnce(&WatchedEvent) + Send + 'static>(&self, path: &str, watcher: W) -> ZkResult<Vec<String>>;
+
+    fn get_children(&self, path: &str, watch: bool) -> ZkResult<Vec<String>>;
+
+    fn get_data(&self, path: &str, watch: bool) -> ZkResult<(Vec<u8>, Stat)>;
+
+    fn get_data_w<W: FnOnce(&WatchedEvent) + Send + 'static>(&self, path: &str, watcher: W) -> ZkResult<(Vec<u8>, Stat)>;
+
+    fn set_acl(&self, path: &str, acl: Vec<Acl>, version: i32) -> ZkResult<Stat>;
+
+    fn set_data(&self, path: &str, data: Vec<u8>, version: i32) -> ZkResult<Stat>;
+
+    fn add_listener(&self, chan: Sender<ZkState>) -> Subscription;
+
+    fn remove_listener(&self, sub: Subscription);
+
+    fn close(&self) -> ZkResult<()>;
+}
+
 pub struct ZooKeeper {
     chroot: Option<String>,
     xid: AtomicIsize,
@@ -34,7 +69,7 @@ pub struct ZooKeeper {
     listeners: ListenerSet<ZkState>,
 }
 
-impl ZooKeeper {
+impl ZooKeeperClient for ZooKeeper {
     fn zk_thread<F>(name: &str, task: F) -> ZkResult<thread::JoinHandle<()>>
         where F: FnOnce() + Send + 'static
     {
@@ -44,10 +79,8 @@ impl ZooKeeper {
             .map_err(|_| ZkError::SystemError)
     }
 
-    pub fn connect<W>(connect_string: &str, timeout: Duration, watcher: W) -> ZkResult<ZooKeeper>
-        where W: Watcher + 'static
-    {
-
+    fn connect<W>(connect_string: &str, timeout: Duration, watcher: W) -> ZkResult<ZooKeeper>
+    where W: Watcher + 'static {
         let (addrs, chroot) = try!(Self::parse_connect_string(connect_string));
 
         debug!("Initiating connection to {}", connect_string);
@@ -185,7 +218,7 @@ impl ZooKeeper {
         Ok(())
     }
 
-    pub fn create(&self,
+    fn create(&self,
                   path: &str,
                   data: Vec<u8>,
                   acl: Vec<Acl>,
@@ -203,7 +236,7 @@ impl ZooKeeper {
         Ok(self.cut_chroot(response.path))
     }
 
-    pub fn delete(&self, path: &str, version: i32) -> ZkResult<()> {
+    fn delete(&self, path: &str, version: i32) -> ZkResult<()> {
         let req = DeleteRequest {
             path: try!(self.path(path)),
             version: version,
@@ -214,7 +247,7 @@ impl ZooKeeper {
         Ok(())
     }
 
-    pub fn exists(&self, path: &str, watch: bool) -> ZkResult<Option<Stat>> {
+    fn exists(&self, path: &str, watch: bool) -> ZkResult<Option<Stat>> {
         let req = ExistsRequest {
             path: try!(self.path(path)),
             watch: watch,
@@ -227,7 +260,8 @@ impl ZooKeeper {
         }
     }
 
-    pub fn exists_w<W: Watcher + 'static>(&self,
+    //fn exists_w<W: FnOnce(&WatchedEvent) + Send + 'static>(&self, path: &str, watcher: W) -> ZkResult<Stat> {
+    fn exists_w<W: Watcher + 'static>(&self,
                                                                path: &str,
                                                                watcher: W)
                                                                -> ZkResult<Stat> {
@@ -235,7 +269,7 @@ impl ZooKeeper {
             path: try!(self.path(path)),
             watch: true,
         };
-
+    
         let watch = Watch {
             path: path.to_owned(),
             watch_type: WatchType::Exist,
@@ -250,7 +284,7 @@ impl ZooKeeper {
         Ok(response.stat)
     }
 
-    pub fn get_acl(&self, path: &str) -> ZkResult<(Vec<Acl>, Stat)> {
+    fn get_acl(&self, path: &str) -> ZkResult<(Vec<Acl>, Stat)> {
         let req = GetAclRequest { path: try!(self.path(path)) };
 
         let response: GetAclResponse = try!(self.request(OpCode::GetAcl, self.xid(), req, None));
@@ -258,7 +292,8 @@ impl ZooKeeper {
         Ok(response.acl_stat)
     }
 
-    pub fn get_children_w<W: Watcher + 'static>(&self,
+    //fn get_children_w<W: FnOnce(&WatchedEvent) + Send + 'static>(&self, path: &str, watcher: W) -> ZkResult<Vec<String>> {
+    fn get_children_w<W: Watcher + 'static>(&self,
                                                                      path: &str,
                                                                      watcher: W)
                                                                      -> ZkResult<Vec<String>> {
@@ -281,7 +316,7 @@ impl ZooKeeper {
         Ok(response.children)
     }
 
-    pub fn get_children(&self, path: &str, watch: bool) -> ZkResult<Vec<String>> {
+    fn get_children(&self, path: &str, watch: bool) -> ZkResult<Vec<String>> {
         let req = GetChildrenRequest {
             path: try!(self.path(path)),
             watch: watch,
@@ -295,7 +330,7 @@ impl ZooKeeper {
         Ok(response.children)
     }
 
-    pub fn get_data(&self, path: &str, watch: bool) -> ZkResult<(Vec<u8>, Stat)> {
+    fn get_data(&self, path: &str, watch: bool) -> ZkResult<(Vec<u8>, Stat)> {
         let req = GetDataRequest {
             path: try!(self.path(path)),
             watch: watch,
@@ -306,7 +341,8 @@ impl ZooKeeper {
         Ok(response.data_stat)
     }
 
-    pub fn get_data_w<W: Watcher + 'static>(&self,
+    //fn get_data_w<W: FnOnce(&WatchedEvent) + Send + 'static>(&self, path: &str, watcher: W) -> ZkResult<(Vec<u8>, Stat)> {
+    fn get_data_w<W: Watcher + 'static>(&self,
                                                                  path: &str,
                                                                  watcher: W)
                                                                  -> ZkResult<(Vec<u8>, Stat)> {
@@ -314,7 +350,7 @@ impl ZooKeeper {
             path: try!(self.path(path)),
             watch: true,
         };
-
+    
         let watch = Watch {
             path: path.to_owned(),
             watch_type: WatchType::Data,
@@ -329,7 +365,7 @@ impl ZooKeeper {
         Ok(response.data_stat)
     }
 
-    pub fn set_acl(&self, path: &str, acl: Vec<Acl>, version: i32) -> ZkResult<Stat> {
+    fn set_acl(&self, path: &str, acl: Vec<Acl>, version: i32) -> ZkResult<Stat> {
         let req = SetAclRequest {
             path: try!(self.path(path)),
             acl: acl,
@@ -341,7 +377,7 @@ impl ZooKeeper {
         Ok(response.stat)
     }
 
-    pub fn set_data(&self, path: &str, data: Vec<u8>, version: i32) -> ZkResult<Stat> {
+    fn set_data(&self, path: &str, data: Vec<u8>, version: i32) -> ZkResult<Stat> {
         let req = SetDataRequest {
             path: try!(self.path(path)),
             data: data,
@@ -353,21 +389,116 @@ impl ZooKeeper {
         Ok(response.stat)
     }
 
-    pub fn add_listener<Listener: Fn(ZkState) + Send + 'static>(&self,
+    //fn add_listener(&self, chan: Sender<ZkState>) -> Subscription {
+    fn add_listener<Listener: Fn(ZkState) + Send + 'static>(&self,
                                                                 listener: Listener)
                                                                 -> Subscription {
         self.listeners.subscribe(listener)
     }
 
-    pub fn remove_listener(&self, sub: Subscription) {
+    fn remove_listener(&self, sub: Subscription) {
         self.listeners.unsubscribe(sub);
     }
 
-    pub fn close(&self) -> ZkResult<()> {
+    fn close(&self) -> ZkResult<()> {
         let _: EmptyResponse = try!(self.request(OpCode::CloseSession, 0, EmptyRequest, None));
 
         Ok(())
     }
+}
+
+impl ZooKeeper {
+
+    fn zk_thread<F>(name: &str, task: F) -> ZkResult<thread::JoinHandle<()>>
+    where F: FnOnce() + Send + 'static {
+        thread::Builder::new()
+            .name(name.to_owned())
+            .spawn(task)
+            .map_err(|_|ZkError::SystemError)
+    }
+
+    fn parse_connect_string(connect_string: &str) -> ZkResult<(Vec<SocketAddr>, Option<String>)> {
+        let (chroot, end) = match connect_string.find('/') {
+            Some(start) => {
+                match &connect_string[start..connect_string.len()] {
+                    "" | "/" => (None, start),
+                    chroot => (Some(try!(Self::validate_path(chroot)).to_owned()), start)
+                }
+            },
+            None => (None, connect_string.len())
+        };
+
+        let mut addrs = Vec::new();
+        for addr_str in connect_string[..end].split(',') {
+            let addr = match addr_str.to_socket_addrs() {
+                Ok(mut addrs) => match addrs.nth(0) {
+                    Some(addr) => addr,
+                    None => return Err(ZkError::BadArguments)
+                },
+                Err(_) => return Err(ZkError::BadArguments)
+            };
+            addrs.push(addr);
+        }
+
+        Ok((addrs, chroot))
+    }
+
+    fn xid(&self) -> i32 {
+        self.xid.fetch_add(1, Ordering::Relaxed) as i32
+    }
+
+    fn request<Req: WriteTo, Resp: ReadFrom>(&self, opcode: OpCode, xid: i32, req: Req, watch: Option<Watch>) -> ZkResult<Resp> {
+        let rh = RequestHeader{xid: xid, opcode: opcode};
+        let buf = try!(to_len_prefixed_buf(rh, req).map_err(|_|ZkError::MarshallingError));
+        
+        let (resp_tx, resp_rx) = sync_channel(0);
+        let request = RawRequest{opcode: opcode, data: buf, listener: Some(resp_tx), watch: watch};
+
+        try!(self.io.send(request).map_err(|err| {
+            warn!("error sending request: {:?}", err);
+            ZkError::ConnectionLoss
+        }));
+
+        let mut response = try!(resp_rx.recv().map_err(|err| {
+            warn!("error receiving response: {:?}", err);
+            ZkError::ConnectionLoss
+        }));
+
+        match response.header.err {
+            0 => Ok(try!(ReadFrom::read_from(&mut response.data).map_err(|_|ZkError::MarshallingError))),
+            e => Err(FromPrimitive::from_i32(e).unwrap())
+        }
+    }
+
+    fn validate_path(path: &str) -> ZkResult<&str> {
+        match path {
+            "" => Err(ZkError::BadArguments),
+            path => if path.len() > 1 && path.chars().last() == Some('/') {
+                    Err(ZkError::BadArguments)
+                } else {
+                    Ok(path)
+                }
+        }
+    }
+
+    fn path(&self, path: &str) -> ZkResult<String> {
+        match self.chroot {
+            Some(ref chroot) => match path {
+                "/" => Ok(chroot.clone()),
+                path => Ok(chroot.clone() + try!(Self::validate_path(path)))
+            },
+            None => Ok(try!(Self::validate_path(path)).to_owned())
+        }
+    }
+
+    fn cut_chroot(&self, path: String) -> String {
+        if let Some(ref chroot) = self.chroot {
+            path[chroot.len()..].to_owned()
+        } else {
+            path
+        }
+    }
+
 }
 
 impl Drop for ZooKeeper {

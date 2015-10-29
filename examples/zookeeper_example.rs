@@ -10,7 +10,7 @@ use std::time::Duration;
 use std::thread;
 use std::env;
 use std::sync::mpsc;
-use zookeeper::{CreateMode, Watcher, WatchedEvent, ZooKeeper};
+use zookeeper::{CreateMode, Watcher, WatchedEvent, ZooKeeper, ZooKeeperClient};
 use zookeeper::acls;
 use zookeeper::recipes::cache::PathChildrenCache;
 

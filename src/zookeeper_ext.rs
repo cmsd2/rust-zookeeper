@@ -1,6 +1,6 @@
 use acls::*;
 use consts::{CreateMode, ZkError};
-use zookeeper::{ZkResult, ZooKeeper};
+use zookeeper::{ZkResult, ZooKeeper, ZooKeeperClient};
 use std::iter::once;
 
 pub trait ZooKeeperExt {
