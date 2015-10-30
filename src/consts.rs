@@ -23,6 +23,7 @@ enum_from_primitive! {
     }
 }
 
+#[derive(Copy, Clone, Debug)]
 pub enum CreateMode {
     Persistent,
     Ephemeral,

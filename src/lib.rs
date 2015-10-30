@@ -1,3 +1,8 @@
+#![feature(fnbox)]
+#![feature(filling_drop)]
+#![feature(mpsc_select)]
+#![feature(unboxed_closures)]
+
 #![deny(unused_mut)]
 extern crate byteorder;
 extern crate bytes;
@@ -11,6 +16,7 @@ extern crate log;
 extern crate mio;
 extern crate time;
 extern crate snowflake;
+extern crate schedule_recv;
 extern crate rand;
 
 pub use consts::*;
