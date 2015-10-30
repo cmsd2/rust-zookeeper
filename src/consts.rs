@@ -1,5 +1,5 @@
 enum_from_primitive! {
-    #[derive(Debug)]
+    #[derive(Copy, Clone, Debug)]
     pub enum ZkError {
         APIError = -100,
         AuthFailed = -115,

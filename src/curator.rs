@@ -2,6 +2,7 @@ use super::zookeeper::{ZooKeeper, ZkResult, ZooKeeperClient};
 use super::proto::Acl;
 use super::consts::{CreateMode};
 use super::retry::*;
+use super::time_ext::*;
 use std::time::Duration;
 use time;
 
@@ -26,18 +27,6 @@ pub trait Curator : ZooKeeperClient {
         where F: FnMut() -> ZkResult<T>;
 }
 
-pub fn timespec_to_duration(ts: time::Timespec) -> Duration {
-    Duration::new(ts.sec as u64, ts.nsec as u32)
-}
-
-/// calculates ts1 - ts2
-/// returns a std::time::Duration
-/// TODO handle underflow/overflow
-pub fn timespec_sub(ts1: &time::Timespec, ts2: &time::Timespec) -> Duration {
-    let secs = ts1.sec - ts2.sec;
-    let nsec = ts1.nsec - ts2.nsec;
-    Duration::new(secs as u64, nsec as u32)
-}
 
 impl Curator for ZooKeeper {
     fn build_create<'a, R>(&'a self, retry_policy: R) -> CreateBuilder<'a, R>
@@ -46,6 +35,23 @@ impl Curator for ZooKeeper {
         CreateBuilder::new(&self, retry_policy)
     }
 
+    /*
+    wait until zk client is connected or we timeout, whichever is first.
+    call the retriable function
+    
+    error handling:
+    the following zk errors are eligible for retry:
+    connection loss
+    operation timeout
+    session moved
+    session expired
+    all others are propagated without retrying
+    retry is only attempted if the retry policy allows
+    so is subject to time limit and/or retries limit
+    if the policy does not allow, then also propagate error immediately
+
+    if error was not propagated then go around for another try
+    */
     fn retry<T, F>(&self, retry_policy: &RetryPolicy, mut fun: F) -> ZkResult<T>
         where F: FnMut() -> ZkResult<T>
     {
@@ -77,6 +83,7 @@ pub struct CreateBuilder<'a, R> {
     zk: &'a ZooKeeper,
     acl: Vec<Acl>,
     mode: CreateMode,
+    create_parents: bool,
     retry_policy: R,
 }
 
@@ -100,6 +107,7 @@ impl <'a, R> CreateBuilder<'a, R> where R: RetryPolicy {
             zk: zk,
             acl: vec![],
             mode: CreateMode::Persistent,
+            create_parents: false,
             retry_policy: retry,
         }
     }
@@ -114,8 +122,23 @@ impl <'a, R> CreateBuilder<'a, R> where R: RetryPolicy {
         self
     }
 
+    pub fn with_create_parents(mut self, create_parents: bool) -> CreateBuilder<'a, R> {
+        self.create_parents = create_parents;
+        self
+    }
+
     pub fn for_path(self, path: &str, data: Vec<u8>) -> ZkResult<String> {
         self.zk.retry(&self.retry_policy, || {
+            /*
+            if not first time and protected mode
+            then find protected node
+
+            if not found protected node
+            try to create the node.
+            catch NoNode in case we're missing parent nodes.
+            create parent nodes, propagating err on failure.
+            */
+            
             self.zk.create(path, data.clone(), self.acl.clone(), self.mode)
         })
     }
