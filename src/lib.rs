@@ -18,6 +18,8 @@ extern crate time;
 extern crate snowflake;
 extern crate schedule_recv;
 extern crate rand;
+extern crate uuid;
+extern crate regex;
 
 pub use consts::*;
 pub use proto::{Acl, Stat, WatchedEvent};
@@ -37,6 +39,6 @@ mod zoodefs;
 mod zookeeper;
 mod zookeeper_ext;
 pub mod recipes;
-mod curator;
-mod retry;
+pub mod curator;
+pub mod retry;
 mod time_ext;

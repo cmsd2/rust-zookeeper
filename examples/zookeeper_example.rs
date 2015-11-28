@@ -13,6 +13,8 @@ use std::sync::mpsc;
 use zookeeper::{CreateMode, Watcher, WatchedEvent, ZooKeeper, ZooKeeperClient};
 use zookeeper::acls;
 use zookeeper::recipes::cache::PathChildrenCache;
+use zookeeper::retry::RetryForever;
+use zookeeper::curator::Curator;
 
 struct LoggingWatcher;
 impl Watcher for LoggingWatcher {
@@ -53,6 +55,25 @@ fn zk_example() {
 
     println!("exists -> {:?}", exists);
 
+    let retry = RetryForever::new(Duration::from_millis(2000));
+    
+    let path2 = zk.build_create(retry)
+        .with_acl(acls::OPEN_ACL_UNSAFE.clone())
+        .with_mode(CreateMode::Ephemeral)
+        .with_create_parents(true)
+        .for_path("/test2", vec![1, 2]);
+
+    println!("created -> {:?}", path2);
+
+    let path3 = zk.build_create(retry)
+        .with_acl(acls::OPEN_ACL_UNSAFE.clone())
+        .with_mode(CreateMode::Ephemeral)
+        .with_create_parents(true)
+        .with_protection(true)
+        .for_path("/test3", vec![1, 2]);
+
+    println!("created -> {:?}", path3);
+    
     let doesnt_exist = zk.exists("/blabla", true);
 
     println!("don't exists path -> {:?}", doesnt_exist);

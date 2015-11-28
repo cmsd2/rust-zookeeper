@@ -145,7 +145,7 @@ impl SleepingRetry for RetryExponentialBackoff {
         self.max_retries
     }
 
-    fn get_sleep_time(&self, retry_count: u32, elapsed_time: Duration) -> Duration {
+    fn get_sleep_time(&self, retry_count: u32, _elapsed_time: Duration) -> Duration {
         let mut retry_interval = self.base_sleep_time * cmp::max(1, rand::thread_rng().gen_range(1, 1 << (retry_count + 1)));
 
         if retry_interval.gt(&self.max_sleep) {
@@ -193,7 +193,7 @@ impl SleepingRetry for RetryBoundedExponentialBackoff {
 }
 
 #[derive(Copy, Clone, Debug)]
-struct RetryLoop {
+pub struct RetryLoop {
     is_done: bool,
     retry_count: u32,
     start_time: time::Timespec,
@@ -223,6 +223,13 @@ impl RetryLoop {
         self.is_done = true;
     }
 
+    /*
+    the following zk errors are eligible for retry:
+    connection loss
+    operation timeout
+    session moved
+    session expired
+    */
     pub fn is_retry_err(err: ZkError) -> bool {
         match err {
             ZkError::ConnectionLoss => true,
@@ -241,9 +248,11 @@ impl RetryLoop {
         timer.recv().unwrap();
     }
 
-    pub fn failure<P, R>(&mut self, retry_policy: &mut P, err: ZkError) -> ZkResult<()>
+    pub fn failure<P, R>(&mut self, retry_policy: &P, err: ZkError) -> ZkResult<()>
         where P: RetryPolicy
     {
+        debug!("retry loop handling error {:?}", err);
+        
         if Self::is_retry_err(err) {
             let elapsed_time = self.elapsed_time();
             self.retry_count += 1;
@@ -263,30 +272,21 @@ impl RetryLoop {
     }
     
     /*
-    wait until zk client is connected or we timeout, whichever is first.
-    call the retriable function
-    
-    error handling:
-    the following zk errors are eligible for retry:
-    connection loss
-    operation timeout
-    session moved
-    session expired
-    all others are propagated without retrying
+    non retryable exceptions are propagated.
     retry is only attempted if the retry policy allows
     so is subject to time limit and/or retries limit
     if the policy does not allow, then also propagate error immediately
 
     if error was not propagated then go around for another try
     */
-    fn call_with_retry<P, F, R>(retry_policy: &mut P, mut fun: F) -> ZkResult<Option<R>>
+    pub fn call_with_retry<P, F, R>(retry_policy: &P, mut fun: F) -> ZkResult<Option<R>>
         where P: RetryPolicy,
               F: FnMut() -> ZkResult<R>
     {
         let mut retry_loop = RetryLoop::new();
         let mut result = None;
         
-        while(retry_loop.should_continue()) {
+        while retry_loop.should_continue() {
             //todo block until connected or timeout
 
             let fun_result = fun();

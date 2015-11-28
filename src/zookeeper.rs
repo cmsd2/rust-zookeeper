@@ -206,7 +206,7 @@ impl ZooKeeperClient for ZooKeeper {
         }
     }
 
-    pub fn add_auth(&self, scheme: &str, auth: Vec<u8>) -> ZkResult<()> {
+    fn add_auth(&self, scheme: &str, auth: Vec<u8>) -> ZkResult<()> {
         let req = AuthRequest {
             typ: 0,
             scheme: scheme.to_owned(),
@@ -503,7 +503,7 @@ impl ZooKeeper {
             .spawn(task)
             .map_err(|_|ZkError::SystemError)
     }
-
+    
     fn parse_connect_string(connect_string: &str) -> ZkResult<(Vec<SocketAddr>, Option<String>)> {
         let (chroot, end) = match connect_string.find('/') {
             Some(start) => {
@@ -556,7 +556,7 @@ impl ZooKeeper {
             e => Err(FromPrimitive::from_i32(e).unwrap())
         }
     }
-
+    
     fn validate_path(path: &str) -> ZkResult<&str> {
         match path {
             "" => Err(ZkError::BadArguments),

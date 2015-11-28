@@ -1,13 +1,13 @@
 use acls::*;
 use consts::{CreateMode, ZkError};
-use zookeeper::{ZkResult, ZooKeeper, ZooKeeperClient};
+use zookeeper::{ZkResult, ZooKeeperClient};
 use std::iter::once;
 
 pub trait ZooKeeperExt {
     fn ensure_path(&self, path: &str) -> ZkResult<()>;
 }
 
-impl ZooKeeperExt for ZooKeeper {
+impl<Z> ZooKeeperExt for Z where Z : ZooKeeperClient {
     fn ensure_path(&self, path: &str) -> ZkResult<()> {
         for (i, _) in path.chars().chain(once('/')).enumerate().skip(1).filter(|c| c.1 == '/') {
             match self.create(&path[..i],
