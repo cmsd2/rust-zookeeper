@@ -236,6 +236,93 @@ impl ZooKeeperClient for ZooKeeper {
         Ok(self.cut_chroot(response.path))
     }
 
+    /// Create node with protection.
+    /// Passes the node name portion of the path through format!("_c_{}-{}", uuid, node_name)
+    /// where uuid is a v4 random uuid.
+    /// this is useful with sequential mode in that it allows the client to calculate which
+    /// node was created by string matching on the uuid.
+    /// this is used in the event that the server was unable to tell the client e.g. due to
+    /// connection loss.
+    pub fn create_p(&self, path: &str, data: Vec<u8>, acl: Vec<Acl>, mode: CreateMode) -> ZkResult<String> {
+        let (base_path, node_name) = paths::split_path(path);
+        let hyphenated_uuid = Uuid::new_v4().to_hyphenated_string();
+        let protected_node_name = format!("_c_{}-{}", hyphenated_uuid, node_name);
+        let protected_path = paths::make_path(base_path, &protected_node_name);
+        
+        let req = CreateRequest{path: try!(self.path(&protected_path)), data: data, acl: acl, flags: mode as i32};
+
+        //let (listener_tx, listener_rx) = channel();
+        //let subscription = self.listeners.subscribe(listener_tx);
+        
+        let response: ZkResult<CreateResponse> = self.request(OpCode::Create, self.xid(), req, None);
+
+        //self.listeners.unsubscribe(subscription);
+
+        match response {
+            Ok(response) => {
+                Ok(self.cut_chroot(response.path))
+            },
+            Err(ZkError::ConnectionLoss) => {
+                /*let mut last_state = ZkState::Connected;
+
+                for state_change in listener_rx {
+                    last_state = state_change;
+                }
+
+                if state_change == ZkState::Connected {
+                    
+            }*/
+
+                match self.recover_created_path(path, &hyphenated_uuid) {
+                    Ok(path_response) => {
+                        debug!("recovered path {:?}", path_response);
+                        match path_response {
+                            Some(created_path) => Ok(self.cut_chroot(created_path)),
+                            None => Err(response.err().unwrap())
+                        }
+                    },
+                    Err(path_err) => {
+                        info!("error recovering path: {:?}", path_err);
+                        Err(response.err().unwrap())
+                    }
+                }
+            },
+            Err(err) => {
+                Err(err)
+            }
+        }
+    }
+
+    fn recover_created_path(&self, path: &str, hyphenated_uuid: &str) -> ZkResult<Option<String>> {
+        let (dir, _protected_name_unsequenced) = paths::split_path(path);
+        debug!("recovering protected name from path {} for uuid {} in dir {}", path, hyphenated_uuid, dir);
+
+        debug!("getting children in {:?}", self.path(dir));
+        
+        match self.get_children(dir, false) {
+            Ok(children) => {
+                debug!("found children {:?}", children);
+                for child in children {
+                    debug!("maching child node {}", child);
+                    match paths::split_protected_name(&child) {
+                        Some((uuid, _sequenced_name)) => {
+                            if uuid == hyphenated_uuid {
+                                debug!("recovered protected name {}", child);
+                                return Ok(Some(paths::make_path(path, &child)));
+                            }
+                        },
+                        None => {
+                        }
+                    }
+                }
+            },
+            _ => {
+            }
+        }
+
+        Ok(None)
+    }
+
     fn delete(&self, path: &str, version: i32) -> ZkResult<()> {
         let req = DeleteRequest {
             path: try!(self.path(path)),
