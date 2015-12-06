@@ -110,7 +110,8 @@ fn zk_example() {
 
     let zk_arc = Arc::new(zk);
 
-    let mut pcc = PathChildrenCache::new(zk_arc.clone(), "/").unwrap();
+    let mut pcc = PathChildrenCache::new(zk_arc.clone(), "/", retry).unwrap();
+
     match pcc.start() {
         Err(err) => {
             println!("error starting cache: {:?}", err);

@@ -6,6 +6,8 @@ use super::paths;
 use uuid::Uuid;
 use super::ZooKeeperExt;
 use std::sync::mpsc::*;
+use std::sync::Mutex;
+use std::sync::Arc;
 
 #[derive(Copy, Clone, Debug)]
 pub enum CuratorError {
@@ -24,15 +26,15 @@ pub type CuratorResult<T> = Result<T, CuratorError>;
 pub trait Curator : ZooKeeperClient {
     fn build_create<R>(&self, retry: R) -> CreateBuilder<R> where R: RetryPolicy;
 
-    fn build_exists<R>(&self, retry: R) -> ExistsBuilder<R> where R: RetryPolicy;
+    fn build_exists<R, W>(&self, retry: R) -> ExistsBuilder<R, W> where R: RetryPolicy, W : Fn(&WatchedEvent) + Send + 'static;
     
     fn build_delete<R>(&self, retry: R) -> DeleteBuilder<R> where R: RetryPolicy;
 
     fn build_get_acl<R>(&self, retry: R) -> GetAclBuilder<R> where R: RetryPolicy;
 
-    fn build_get_children<R>(&self, retry: R) -> GetChildrenBuilder<R> where R: RetryPolicy;
+    fn build_get_children<R, W>(&self, retry: R) -> GetChildrenBuilder<R, W> where R: RetryPolicy, W: Fn(&WatchedEvent) + Send + 'static;
 
-    fn build_get_data<R>(&self, retry: R) -> GetDataBuilder<R> where R: RetryPolicy;
+    fn build_get_data<R, W>(&self, retry: R) -> GetDataBuilder<R, W> where R: RetryPolicy, W: Fn(&WatchedEvent) + Send + 'static;
 
     fn build_set_acl<R>(&self, retry: R) -> SetAclBuilder<R> where R: RetryPolicy;
 
@@ -50,8 +52,8 @@ impl Curator for ZooKeeper {
         CreateBuilder::new(&self, retry_policy)
     }
 
-    fn build_exists<'a, R>(&'a self, retry_policy: R) -> ExistsBuilder<'a, R>
-        where R: RetryPolicy
+    fn build_exists<'a, R, W>(&'a self, retry_policy: R) -> ExistsBuilder<'a, R, W>
+        where R: RetryPolicy, W: Fn(&WatchedEvent) + Send + 'static
     {
         ExistsBuilder::new(&self, retry_policy)
     }
@@ -68,14 +70,14 @@ impl Curator for ZooKeeper {
         GetAclBuilder::new(&self, retry_policy)
     }
 
-    fn build_get_children<'a, R>(&'a self, retry_policy: R) -> GetChildrenBuilder<'a, R>
-        where R: RetryPolicy
+    fn build_get_children<'a, R, W>(&'a self, retry_policy: R) -> GetChildrenBuilder<'a, R, W>
+        where R: RetryPolicy, W: Fn(&WatchedEvent) + Send + 'static
     {
         GetChildrenBuilder::new(&self, retry_policy)
     }
 
-    fn build_get_data<'a, R>(&'a self, retry_policy: R) -> GetDataBuilder<'a, R>
-        where R: RetryPolicy
+    fn build_get_data<'a, R, W>(&'a self, retry_policy: R) -> GetDataBuilder<'a, R, W>
+        where R: RetryPolicy, W: Fn(&WatchedEvent) + Send + 'static
     {
         GetDataBuilder::new(&self, retry_policy)
     }
@@ -234,35 +236,43 @@ impl <'a, R> CreateBuilder<'a, R> where R: RetryPolicy {
     }
 }
 
-pub struct ExistsBuilder<'a, R> {
+pub struct ExistsBuilder<'a, R, W>
+    where W: Fn(&WatchedEvent) + Send + 'static
+{
     zk: &'a ZooKeeper,
     retry_policy: R,
     watch: bool,
-    watcher: Option<Sender<WatchedEvent>>
+    watcher: Option<Sender<WatchedEvent>>,
+    watcher_fn: Option<W>,
 }
 
-impl <'a, R> ExistsBuilder<'a, R> where R: RetryPolicy {
-    pub fn new(zk: &'a ZooKeeper, retry: R) -> ExistsBuilder<'a, R> {
+impl <'a, R, W> ExistsBuilder<'a, R, W> where R: RetryPolicy, W : Fn(&WatchedEvent) + Send + 'static {
+    pub fn new(zk: &'a ZooKeeper, retry: R) -> ExistsBuilder<'a, R, W> {
         ExistsBuilder {
             zk: zk,
             retry_policy: retry,
 	    watch: false,
 	    watcher: None,
+            watcher_fn: None,
         }
     }
 
-    pub fn with_watch(mut self, watch: bool) -> ExistsBuilder<'a, R> {
+    pub fn with_watch(mut self, watch: bool) -> ExistsBuilder<'a, R, W> {
         self.watch = watch;
 	self
     }
 
-    pub fn with_watcher(mut self, watcher: Option<Sender<WatchedEvent>>) -> ExistsBuilder<'a, R> {
+    pub fn with_watcher(mut self, watcher: Option<Sender<WatchedEvent>>) -> ExistsBuilder<'a, R, W> {
         self.watcher = watcher;
 	self
     }
 
-    pub fn for_path(self, path: &str) -> CuratorResult<Option<Stat>> {
+    pub fn with_watcher_fn(mut self, watcher_fn: Option<W>) -> ExistsBuilder<'a, R, W> {
+        self.watcher_fn = watcher_fn;
+        self
+    }
 
+    pub fn for_path(self, path: &str) -> CuratorResult<Option<Stat>> {
         if self.watcher.is_some() {
             let maybe_watcher = self.watcher.as_ref();
 	
@@ -277,6 +287,18 @@ impl <'a, R> ExistsBuilder<'a, R> where R: RetryPolicy {
                         debug!("sent watched event to channel");
                     }
 	        
+                }).map(|x| Some(x))
+            })
+        } else if self.watcher_fn.is_some() {
+            let watcher_mut = Arc::new(Mutex::new(self.watcher_fn.unwrap()));
+            let zk = self.zk; 
+
+            self.zk.retry(&self.retry_policy, move || {
+                let w_c = watcher_mut.clone();
+                zk.exists_w(path, move |ev: &WatchedEvent| {
+                    let w = w_c.lock().unwrap();
+
+                    w(&(*ev).clone());
                 }).map(|x| Some(x))
             })
 	} else {
@@ -334,31 +356,40 @@ impl <'a, R> GetAclBuilder<'a, R> where R: RetryPolicy {
     }
 }
 
-pub struct GetChildrenBuilder<'a, R> {
+pub struct GetChildrenBuilder<'a, R, W>
+    where W: Fn(&WatchedEvent) + Send + 'static
+{
     zk: &'a ZooKeeper,
     retry_policy: R,
     watch: bool,
     watcher: Option<Sender<WatchedEvent>>,
+    watcher_fn: Option<W>,
 }
 
-impl <'a, R> GetChildrenBuilder<'a, R> where R: RetryPolicy {
-    pub fn new(zk: &'a ZooKeeper, retry: R) -> GetChildrenBuilder<'a, R> {
+impl <'a, R, W> GetChildrenBuilder<'a, R, W> where R: RetryPolicy, W: Fn(&WatchedEvent) + Send + 'static {
+    pub fn new(zk: &'a ZooKeeper, retry: R) -> GetChildrenBuilder<'a, R, W> {
         GetChildrenBuilder {
             zk: zk,
             retry_policy: retry,
             watch: false,
             watcher: None,
+            watcher_fn: None,
         }
     }
 
-    pub fn with_watch(mut self, watch: bool) -> GetChildrenBuilder<'a, R> {
+    pub fn with_watch(mut self, watch: bool) -> GetChildrenBuilder<'a, R, W> {
         self.watch = watch;
 	self
     }
 
-    pub fn with_watcher(mut self, watcher: Option<Sender<WatchedEvent>>) -> GetChildrenBuilder<'a, R> {
+    pub fn with_watcher(mut self, watcher: Option<Sender<WatchedEvent>>) -> GetChildrenBuilder<'a, R, W> {
         self.watcher = watcher;
 	self
+    }
+
+    pub fn with_watcher_fn(mut self, watcher_fn: Option<W>) -> GetChildrenBuilder<'a, R, W> {
+        self.watcher_fn = watcher_fn;
+        self
     }
 
     pub fn for_path(self, path: &str) -> CuratorResult<Vec<String>> {
@@ -379,6 +410,18 @@ impl <'a, R> GetChildrenBuilder<'a, R> where R: RetryPolicy {
 	        
                 })
             })
+        } else if self.watcher_fn.is_some() {
+            let watcher_mut = Arc::new(Mutex::new(self.watcher_fn.unwrap()));
+            let zk = self.zk; 
+
+            self.zk.retry(&self.retry_policy, move || {
+                let w_c = watcher_mut.clone();
+                zk.get_children_w(path, move |ev: &WatchedEvent| {
+                    let w = w_c.lock().unwrap();
+
+                    w(&(*ev).clone());
+                })
+            })
 	} else {
 	    self.zk.retry(&self.retry_policy, || {
 	        self.zk.get_children(path, self.watch)
@@ -387,30 +430,37 @@ impl <'a, R> GetChildrenBuilder<'a, R> where R: RetryPolicy {
     }
 }
 
-pub struct GetDataBuilder<'a, R> {
+pub struct GetDataBuilder<'a, R, W> {
     zk: &'a ZooKeeper,
     retry_policy: R,
     watch: bool,
     watcher: Option<Sender<WatchedEvent>>,
+    watcher_fn: Option<W>
 }
 
-impl <'a, R> GetDataBuilder<'a, R> where R: RetryPolicy {
-    pub fn new(zk: &'a ZooKeeper, retry: R) -> GetDataBuilder<'a, R> {
+impl <'a, R, W> GetDataBuilder<'a, R, W> where R: RetryPolicy, W: Fn(&WatchedEvent) + Send + 'static {
+    pub fn new(zk: &'a ZooKeeper, retry: R) -> GetDataBuilder<'a, R, W> {
         GetDataBuilder {
             zk: zk,
             retry_policy: retry,
             watch: false,
             watcher: None,
+            watcher_fn: None,
         }
     }
 
-    pub fn with_watch(mut self, watch: bool) -> GetDataBuilder<'a, R> {
+    pub fn with_watch(mut self, watch: bool) -> GetDataBuilder<'a, R, W> {
         self.watch = watch;
 	self
     }
 
-    pub fn with_watcher(mut self, watcher: Option<Sender<WatchedEvent>>) -> GetDataBuilder<'a, R> {
+    pub fn with_watcher(mut self, watcher: Option<Sender<WatchedEvent>>) -> GetDataBuilder<'a, R, W> {
         self.watcher = watcher;
+	self
+    }
+
+    pub fn with_watcher_fn(mut self, watcher_fn: Option<W>) -> GetDataBuilder<'a, R, W> {
+        self.watcher_fn = watcher_fn;
 	self
     }
 
@@ -430,6 +480,18 @@ impl <'a, R> GetDataBuilder<'a, R> where R: RetryPolicy {
                         debug!("sent watched event to channel");
                     }
 	        
+                })
+            })
+        } else if self.watcher_fn.is_some() {
+            let watcher_mut = Arc::new(Mutex::new(self.watcher_fn.unwrap()));
+            let zk = self.zk; 
+
+            self.zk.retry(&self.retry_policy, move || {
+                let w_c = watcher_mut.clone();
+                zk.get_data_w(path, move |ev: &WatchedEvent| {
+                    let w = w_c.lock().unwrap();
+
+                    w(&(*ev).clone());
                 })
             })
 	} else {
