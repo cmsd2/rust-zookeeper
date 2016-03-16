@@ -1,6 +1,3 @@
-#![feature(fnbox)]
-#![feature(filling_drop)]
-#![feature(mpsc_select)]
 #![feature(unboxed_closures)]
 
 #![deny(unused_mut)]

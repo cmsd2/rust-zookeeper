@@ -315,35 +315,21 @@ impl <R> PathChildrenCache<R> where R: RetryPolicy + Send + Clone + 'static {
             let mut done = false;
 
             while !done {
-                select! (
-                    state_result = listener_chan_rx.recv() => {
-                        match state_result {
-                            Ok(state) => {
-                                done = Self::handle_state_change(state, ops_chan_tx.clone());
-                            },
-                            Err(err) => {
-                                info!("zk state chan err. shutting down. {:?}", err);
-                                done = true;
-                            }
-                        }
+                match ops_chan_rx.recv() {
+                    Ok(operation) => {
+                        done = Self::handle_operation(operation,
+                                                      zk.clone(),
+                                                      path.clone(),
+                                                      data.clone(),
+                                                      event_listeners.clone(),
+                                                      ops_chan_tx.clone(),
+                                                      retry_policy.clone());
                     },
-                    op_result = ops_chan_rx.recv() => {
-                        match op_result {
-                            Ok(operation) => {
-                                done = Self::handle_operation(operation,
-                                                              zk.clone(),
-                                                              path.clone(),
-                                                              data.clone(),
-                                                              event_listeners.clone(),
-                                                              ops_chan_tx.clone(),
-                                                              retry_policy.clone());
-                            },
-                            Err(err) => {
-                                info!("error receiving from operations channel ({:?}). shutting down worker thread", err);
-                                done = true;                            
-                            }
-                        }
-                    });
+                    Err(err) => {
+                        info!("error receiving from operations channel ({:?}). shutting down worker thread", err);
+                        done = true;                            
+                    }
+                }
             }
         }));
 
@@ -358,6 +344,10 @@ impl <R> PathChildrenCache<R> where R: RetryPolicy + Send + Clone + 'static {
 
     pub fn remove_listener(&self, sub: Subscription) -> () {
         self.event_listeners.unsubscribe(sub)
+    }
+
+    pub fn shutdown(&self) -> ZkResult<()> {
+        self.offer_operation(Operation::Shutdown)
     }
 
     fn offer_operation(&self, op: Operation) -> ZkResult<()> {
