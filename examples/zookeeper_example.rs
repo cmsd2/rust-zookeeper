@@ -36,6 +36,8 @@ fn zk_server_urls() -> String {
 
 fn zk_example() {
     let zk_urls = zk_server_urls();
+    let retry = RetryForever::new(Duration::from_millis(2000));
+    
     println!("connecting to {}", zk_urls);
 
     let zk = ZooKeeper::connect(&*zk_urls, Duration::from_secs(5), LoggingWatcher).unwrap();
@@ -56,7 +58,10 @@ fn zk_example() {
     println!("press enter to perform create_p");
     io::stdin().read_line(&mut tmp).unwrap();
     
-    let path_seq = zk.create_p("/test_seq", vec![1,2], acls::OPEN_ACL_UNSAFE.clone(), CreateMode::EphemeralSequential);
+    let path_seq = zk.build_create(retry)
+        .with_acl(acls::OPEN_ACL_UNSAFE.clone())
+        .with_mode(CreateMode::EphemeralSequential)
+        .for_path("/test_seq", vec![1,2]);
 
     println!("created -> {:?}", path_seq);
 
@@ -66,8 +71,6 @@ fn zk_example() {
     let exists = zk.exists("/test", true);
 
     println!("exists -> {:?}", exists);
-
-    let retry = RetryForever::new(Duration::from_millis(2000));
     
     let path2 = zk.build_create(retry)
         .with_acl(acls::OPEN_ACL_UNSAFE.clone())
@@ -142,7 +145,7 @@ fn zk_example() {
         }
     });
 
-    let m = Arc::new(InterProcessMutex::new(zk_arc.clone(), "/", "test_mutex", 1));
+    let m = Arc::new(InterProcessMutex::new(zk_arc.clone(), "/", "test_mutex", 1, retry));
 
     println!("acquiring mutex first time");
     let result_1 = m.acquire(None).ok();
