@@ -5,8 +5,7 @@ use std::cmp;
 use std::time::Duration;
 use zookeeper::{ZooKeeper, ZooKeeperClient};
 use curator::{Curator};
-use retry;
-use retry::NoRetry;
+use retry::*;
 use consts::*;
 use zkresult::*;
 use acls;
@@ -123,7 +122,7 @@ impl LockInternals
         let lock_path = try!(self.get_lock_ticket_path().ok_or(ZkError::UnknownError));
 
         if self.decr_lock(thread_id) {
-            debug!("deleting lock node at {}", lock_path);
+            debug!("{:?} deleting lock node at {}", thread_id, lock_path);
             try!(self.zk.delete(&lock_path, -1));
             self.clear_lock_ticket_path();
         }
@@ -142,25 +141,25 @@ impl LockInternals
     pub fn acquire(&self, duration: Option<Duration>) -> ZkResult<bool> {
         let thread_id = ThreadId::current_thread_id();
 
-        debug!("acquiring mutex for thread {:?}", thread_id);
+        debug!("{:?} acquiring mutex {}", thread_id, self.get_lock_path());
 
         if self.owner() == Some(thread_id) {
-            debug!("already owned lock. incremented depth for thread {:?}", thread_id);
+            debug!("{:?} already owned lock. incrementing lock depth", thread_id);
+            
             self.incr_lock(thread_id);
             Ok(true)
         } else {
-        
             let path_result = try!(self.create_node_loop(thread_id, duration));
 
             if path_result.is_some() {
-                debug!("acquired mutex for thread {:?}", thread_id);
+                debug!("{:?} acquired mutex {}", thread_id, self.get_lock_path());
                 
                 self.incr_lock(thread_id);
                 self.set_lock_ticket_path(path_result.unwrap());
 
                 Ok(true)
             } else {
-                debug!("failed to acquire mutex for thread {:?}", thread_id);
+                debug!("{:?} failed to acquire mutex {}", thread_id, self.get_lock_path());
 
                 Ok(false)
             }
@@ -221,49 +220,52 @@ impl LockInternals
 
         let create_node_fn = || {
         //loop {
-            debug!("checking lock ownership for thread {:?}", thread_id);
+            debug!("{:?} checking lock {}", thread_id, path);
             match try!(self.check_lock_or_wait(thread_id, &path, &timeout)) {
                 Some(acquired) => {
                     if acquired {
-                        debug!("lock acquired for thread {:?}", thread_id);
+                        debug!("{:?} acquired {}", thread_id, path);
                         Ok(Some(path.to_owned()))
                     } else {
-                        debug!("lock not acquired for thread {:?}. looping", thread_id);
+                        debug!("{:?} not acquired {}. looping", thread_id, path);
                         Err(ZkError::Interrupted)
                     }
                 },
                 None => {
                     // timed out
-                    debug!("timed out acquiring lock for thread {:?}", thread_id);
+                    debug!("{:?} timeout acquiring {}", thread_id, path);
                     try!(self.zk.delete(&path, -1));
                     Ok(None)
                 }
             }
         };
 
-        let result = try!(self.zk.retry(&retry::NoRetry, create_node_fn));
+        let retry = RetryExponentialBackoff::new(Duration::from_millis(10), None, Duration::from_millis(2000));
+        //let retry = RetryNTimes::new(10, Duration::from_millis(1000));
+        
+        let result = try!(self.zk.retry(&retry, create_node_fn));
 
         Ok(result)
     }
 
     pub fn check_lock_or_wait(&self, thread_id: ThreadId, node_path: &str, timeout: &Receiver<()>) -> ZkResult<Option<bool>> {
-        debug!("checking lock {} for thread {:?}", node_path, thread_id);
+        debug!("{:?} checking lock {}", thread_id, node_path);
         let (_base_path, node_name) = paths::split_path(&node_path);
             
         // download list of children
         // sort the list by the sequence number suffix
         let children = try!(self.get_sorted_lock_nodes());
 
-        debug!("found lock queue {:?}", children);
+        debug!("{:?} found lock queue {:?}", thread_id, children);
         
         // check where we are in the list
         match self.find_lock_node(&children[..], node_name) {
             Some(pos) => {
-                debug!("found node {} in lock queue at pos {}", node_name, pos);
+                debug!("{:?} found node {} in lock queue at pos {}", thread_id, node_name, pos);
                 if self.have_lock(pos, self.max_leases) {
                     // if in the range [0..max_leases) then we
                     // already own the lock, so return Ok(true)
-                    debug!("we (thread {:?}) own the lock!", thread_id);
+                    debug!("{:?} we own the lock", thread_id);
                     Ok(Some(true))
                 } else {
                     // otherwise, get and watch the n-max_leases item
@@ -273,14 +275,14 @@ impl LockInternals
                     let watch_pos = pos - (self.max_leases as usize);
                     let watch_node_name = &children[watch_pos].node_name;
 
-                    debug!("waiting on node {} at pos {} for thread {:?}", watch_node_name, watch_pos, thread_id);
-                    let not_timedout = try!(self.wait_while_exists(watch_node_name, timeout));
+                    debug!("{:?} waiting on node {} at pos {}", thread_id, watch_node_name, watch_pos);
+                    let not_timedout = try!(self.wait_while_exists(thread_id, watch_node_name, timeout));
 
                     if not_timedout {
-                        debug!("got watch event for node for thread {:?}", thread_id);
+                        debug!("{:?} got watch event for {}", thread_id, node_path);
                         Ok(Some(false))
                     } else {
-                        debug!("timed out waiting for node for thread {:?}", thread_id);
+                        debug!("{:?} timeout waiting for node {}", thread_id, node_path);
                         Ok(None)
                     }
                 }
@@ -288,7 +290,7 @@ impl LockInternals
             None => {
                 // our session probably got reset, deleting our
                 // ephemeral node
-                debug!("couldn't find our sequential lock node for thread {:?}!", thread_id);
+                debug!("{:?} couldn't find our sequential lock node {}", thread_id, node_path);
                 Ok(Some(false))
             }
         }
@@ -314,26 +316,26 @@ impl LockInternals
         }
     }
 
-    pub fn wait_while_exists(&self, node_name: &str, timeout_rx: &Receiver<()>) -> ZkResult<bool> {
+    pub fn wait_while_exists(&self, thread_id: ThreadId, node_name: &str, timeout_rx: &Receiver<()>) -> ZkResult<bool> {
         let (watch_tx, watch_rx) = mpsc::channel();
         
         if false == try!(self.exists_w(node_name, watch_tx.clone())) {
-            debug!("node {} is already deleted", node_name);
+            debug!("{:?} node {} is already deleted", thread_id, node_name);
             return Ok(false);
         }
 
-        debug!("waiting for watch event on {}", node_name);
+        debug!("{:?} waiting for watch event on {}", thread_id, node_name);
         
         loop {
             select!(
                 exists_result = watch_rx.recv() => {
-                    debug!("watcher for {:?} returned {:?}", node_name, exists_result);
+                    debug!("{:?} watcher for {:?} returned {:?}", thread_id, node_name, exists_result);
                     match exists_result {
                         Ok(exists) => {
                             if exists {
-                                debug!("node {} exists. resetting watch", node_name);
+                                debug!("{:?} node {} exists. resetting watch", thread_id, node_name);
                                 if false == try!(self.exists_w(node_name, watch_tx.clone())) {
-                                    debug!("node {} is now deleted", node_name);
+                                    debug!("{:?} node {} is now deleted", thread_id, node_name);
                                     return Ok(false);
                                 }
                             } else {
@@ -341,13 +343,13 @@ impl LockInternals
                             }
                         },
                         Err(err) => {
-                            warn!("error receiving from watch channel: {:?}", err);
+                            warn!("{:?} error receiving from watch channel: {:?}", thread_id, err);
                             return Err(ZkError::ChannelError);
                         }
                     }
                 },
                 timeout_result = timeout_rx.recv() => {
-                    debug!("timeout for {:?}: {:?}", node_name, timeout_result);
+                    debug!("{:?} timeout for {:?}: {:?}", thread_id, node_name, timeout_result);
                     return Ok(false);
                 }
                 );
@@ -463,15 +465,15 @@ impl LockData {
     pub fn acquire(&mut self, thread_id: ThreadId) -> Option<u32> {
         if self.thread_id == Some(thread_id) {
             let count = self.incr_and_get_lock_count();
-            debug!("lock already owned by thread {:?} count now {:?}", thread_id, count);
+            debug!("{:?} lock already owned by thread. count now {:?}", thread_id, count);
             Some(self.lock_count)
         } else if self.lock_count == 0 {
             self.thread_id = Some(thread_id);
             self.incr_and_get_lock_count();
-            debug!("lock freshly claimed by thread {:?}", thread_id);
+            debug!("{:?} lock freshly claimed by thread", thread_id);
             Some(self.lock_count)
         } else {
-            debug!("lock owned by thread {:?} count {:?}", self.thread_id, self.lock_count);
+            debug!("{:?} lock owned by other thread {:?} count {:?}", thread_id, self.thread_id, self.lock_count);
             None
         }
     }
@@ -480,26 +482,18 @@ impl LockData {
     /// returns Some(lock_count) if the thread held the lock.
     /// returns None otherwise.
     pub fn release(&mut self, thread_id: ThreadId) -> u32 {
-        if self.decr(thread_id) {
-            debug!("lock finally released by thread {:?}", thread_id);
+        if self.thread_id != Some(thread_id) || self.lock_count == 0 {
+            panic!("{:?} can't release lock: owned by thread {:?} count {}", thread_id, self.thread_id, self.lock_count);
+        }
+        
+        if self.decr_and_get_lock_count() == 0 {
+            debug!("{:?} lock finally released by thread", thread_id);
             self.thread_id = None;
         } else {
-            debug!("lock still owned by thread {:?} count {:?}", thread_id, self.lock_count);
+            debug!("{:?} lock still owned by thread count {:?}", thread_id, self.lock_count);
         }
 
         self.lock_count
-    }
-
-    /// if the given thread holds the lock then
-    /// decrement the lock count.
-    /// returns true if the lock is now unlocked,
-    /// false otherwise.
-    fn decr(&mut self, thread_id: ThreadId) -> bool {
-        if self.thread_id != Some(thread_id) || self.lock_count == 0 {
-            panic!("can't release lock: not owned by thread");
-        } else {
-            self.decr_and_get_lock_count() == 0
-        }
     }
 
     fn incr_and_get_lock_count(&mut self) -> u32 {

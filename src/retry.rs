@@ -17,14 +17,18 @@ pub trait RetryPolicy {
     fn allow_retry(&self, retry_count: u32, elapsed_time: Duration) -> RetryResult;
 }
 
-trait SleepingRetry {
-    fn get_max_retries(&self) -> u32;
+pub trait SleepingRetry {
+    fn get_max_retries(&self) -> Option<u32>;
     fn get_sleep_time(&self, retry_count: u32, elapsed_time: Duration) -> Duration;
 }
 
-impl RetryPolicy for SleepingRetry {
+impl<T> RetryPolicy for T
+where T: SleepingRetry 
+{
     fn allow_retry(&self, retry_count: u32, elapsed_time: Duration) -> RetryResult {
-        if retry_count < self.get_max_retries() {
+        let max_retries = self.get_max_retries();
+        
+        if max_retries == None || retry_count < max_retries.unwrap() {
             RetryResult::RetryAfterSleep(self.get_sleep_time(retry_count, elapsed_time))
         } else {
             RetryResult::Stop
@@ -67,8 +71,8 @@ impl RetryNTimes {
 }
 
 impl SleepingRetry for RetryNTimes {
-    fn get_max_retries(&self) -> u32 {
-        self.max_retries
+    fn get_max_retries(&self) -> Option<u32> {
+        Some(self.max_retries)
     }
 
     fn get_sleep_time(&self, _retry_count: u32, _elapsed_time: Duration) -> Duration {
@@ -99,8 +103,8 @@ impl RetryOneTime {
 }
 
 impl SleepingRetry for RetryOneTime {
-    fn get_max_retries(&self) -> u32 {
-        1
+    fn get_max_retries(&self) -> Option<u32> {
+        Some(1)
     }
 
     fn get_sleep_time(&self, retry_count: u32, elapsed_time: Duration) -> Duration {
@@ -136,12 +140,12 @@ impl RetryPolicy for RetryUntilElapsed {
 #[derive(Copy, Clone, Debug)]
 pub struct RetryExponentialBackoff {
     base_sleep_time: Duration,
-    max_retries: u32,
+    max_retries: Option<u32>,
     max_sleep: Duration,
 }
 
 impl RetryExponentialBackoff {
-    pub fn new(base_sleep_time: Duration, max_retries: u32, max_sleep: Duration) -> RetryExponentialBackoff {
+    pub fn new(base_sleep_time: Duration, max_retries: Option<u32>, max_sleep: Duration) -> RetryExponentialBackoff {
         RetryExponentialBackoff {
             base_sleep_time: base_sleep_time,
             max_retries: max_retries,
@@ -151,7 +155,7 @@ impl RetryExponentialBackoff {
 }
 
 impl SleepingRetry for RetryExponentialBackoff {
-    fn get_max_retries(&self) -> u32 {
+    fn get_max_retries(&self) -> Option<u32> {
         self.max_retries
     }
 
@@ -169,14 +173,14 @@ impl SleepingRetry for RetryExponentialBackoff {
 
 #[derive(Copy, Clone, Debug)]
 pub struct RetryBoundedExponentialBackoff {
-    max_sleep_time: Duration,
+    max_retry_time: Duration,
     exponential_backoff: RetryExponentialBackoff,
 }
 
 impl RetryBoundedExponentialBackoff {
-    pub fn new(base_sleep_time: Duration, max_sleep_time: Duration, max_retries: u32, max_sleep: Duration) -> RetryBoundedExponentialBackoff {
+    pub fn new(base_sleep_time: Duration, max_retry_time: Duration, max_retries: Option<u32>, max_sleep: Duration) -> RetryBoundedExponentialBackoff {
         RetryBoundedExponentialBackoff {
-            max_sleep_time: max_sleep_time,
+            max_retry_time: max_retry_time,
             exponential_backoff: RetryExponentialBackoff::new(
                 base_sleep_time,
                 max_retries,
@@ -184,20 +188,24 @@ impl RetryBoundedExponentialBackoff {
             )
         }
     }
-}
 
-impl SleepingRetry for RetryBoundedExponentialBackoff {
-    fn get_max_retries(&self) -> u32 {
+    fn get_max_retries(&self) -> Option<u32> {
         self.exponential_backoff.get_max_retries()
     }
 
     fn get_sleep_time(&self, retry_count: u32, elapsed_time: Duration) -> Duration {
-        let retry_interval = self.exponential_backoff.get_sleep_time(retry_count, elapsed_time);
+        self.exponential_backoff.get_sleep_time(retry_count, elapsed_time)
+    }
+}
 
-        if retry_interval.gt(&self.max_sleep_time) {
-            self.max_sleep_time
+impl RetryPolicy for RetryBoundedExponentialBackoff {
+    fn allow_retry(&self, retry_count: u32, elapsed_time: Duration) -> RetryResult {
+        let max_retries = self.get_max_retries();
+        
+        if (max_retries == None || retry_count < max_retries.unwrap()) && elapsed_time.lt(&self.max_retry_time) {
+            RetryResult::RetryAfterSleep(self.get_sleep_time(retry_count, elapsed_time))
         } else {
-            retry_interval
+            RetryResult::Stop
         }
     }
 }
@@ -215,7 +223,6 @@ impl RetryLoop {
             is_done: false,
             retry_count: 0,
             start_time: time::now_utc().to_timespec(),
-
         }
     }
 
@@ -245,6 +252,8 @@ impl RetryLoop {
             ZkError::ApiError(ZkApiError::ConnectionLoss) => true,
             ZkError::ApiError(ZkApiError::OperationTimeout) => true,
             ZkError::ApiError(ZkApiError::SessionExpired) => true,
+            ZkError::Interrupted => true,
+            ZkError::Timeout => true,
             /* session moved error too? */
             _ => false,
         }
