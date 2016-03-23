@@ -1,4 +1,4 @@
-use consts::{OpCode, ZkError, ZkState};
+use consts::{OpCode, ZkApiError, ZkState};
 use proto::{ByteBuf, ConnectRequest, ConnectResponse, ReadFrom, ReplyHeader, RequestHeader,
             WriteTo};
 use watch::WatchMessage;
@@ -361,7 +361,7 @@ impl Handler for ZkHandler {
             let header = ReplyHeader {
                 xid: 0,
                 zxid: 0,
-                err: ZkError::ConnectionLoss as i32,
+                err: ZkApiError::ConnectionLoss as i32,
             };
             let response = RawResponse {
                 header: header,

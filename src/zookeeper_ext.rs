@@ -1,6 +1,7 @@
 use acls::*;
-use consts::{CreateMode, ZkError};
-use zookeeper::{ZkResult, ZooKeeperClient};
+use consts::{CreateMode, ZkApiError};
+use zookeeper::{ZooKeeperClient};
+use zkresult::*;
 use std::iter::once;
 
 pub trait ZooKeeperExt {
@@ -14,7 +15,7 @@ impl<Z> ZooKeeperExt for Z where Z : ZooKeeperClient {
                               vec![],
                               OPEN_ACL_UNSAFE.clone(),
                               CreateMode::Persistent) {
-                Ok(_) | Err(ZkError::NodeExists) => {}
+                Ok(_) | Err(ZkError::ApiError(ZkApiError::NodeExists)) => {}
                 Err(e) => return Err(e),
             }
         }

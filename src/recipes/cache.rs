@@ -3,10 +3,11 @@ use std::sync::{Arc, Mutex};
 use std::sync::mpsc;
 use std::sync::mpsc::Sender;
 use std::collections::HashMap;
-use consts::{WatchedEventType, ZkError, ZkState};
+use consts::{WatchedEventType, ZkState};
+use zkresult::*;
 use paths::make_path;
 use proto::WatchedEvent;
-use zookeeper::{ZkResult, ZooKeeper, ZooKeeperClient};
+use zookeeper::{ZooKeeper, ZooKeeperClient};
 use zookeeper_ext::ZooKeeperExt;
 use curator::*;
 use retry::*;
@@ -60,7 +61,7 @@ impl <R> PathChildrenCache<R> where R: RetryPolicy + Send + Clone + 'static {
                     data: Arc<Mutex<Data>>,
                     ops_chan: Sender<Operation>,
                     mode: RefreshMode,
-                    retry: R) -> CuratorResult<()> {
+                    retry: R) -> ZkResult<()> {
 
         let ops_chan1 = ops_chan.clone();
 
@@ -100,7 +101,7 @@ impl <R> PathChildrenCache<R> where R: RetryPolicy + Send + Clone + 'static {
 
                 try!(ops_chan.send(Operation::Event(PathChildrenCacheEvent::ChildAdded(child_path, child_data))).map_err(|err| {
                     info!("error sending ChildAdded event: {:?}", err);
-                    ZkError::APIError
+                    ZkError::UnknownError
                 }));
             }
         }
@@ -114,7 +115,7 @@ impl <R> PathChildrenCache<R> where R: RetryPolicy + Send + Clone + 'static {
                 path: &str,
                 data: Arc<Mutex<Data>>,
                 ops_chan: Sender<Operation>,
-                retry_policy: R) -> CuratorResult<Vec<u8>> {
+                retry_policy: R) -> ZkResult<Vec<u8>> {
 
         let path1 = path.to_owned();
 
@@ -150,7 +151,7 @@ impl <R> PathChildrenCache<R> where R: RetryPolicy + Send + Clone + 'static {
                    path: &str,
                    data: Arc<Mutex<Data>>,
                    ops_chan_tx: Sender<Operation>,
-                   retry: R) -> CuratorResult<()> {
+                   retry: R) -> ZkResult<()> {
 
         let mut data_locked = data.lock().unwrap();
 
@@ -170,7 +171,7 @@ impl <R> PathChildrenCache<R> where R: RetryPolicy + Send + Clone + 'static {
                                                                                        child_data)))
                            .map_err(|err| {
                                warn!("error sending ChildUpdated event: {:?}", err);
-                               CuratorError::ZkError(ZkError::APIError)
+                               ZkError::UnknownError
                            })
             },
             Err(err) => {
@@ -355,10 +356,10 @@ impl <R> PathChildrenCache<R> where R: RetryPolicy + Send + Clone + 'static {
             Some(ref chan) => {
                 chan.send(op).map_err(|err| {
                     warn!("error submitting op to channel: {:?}", err);
-                    ZkError::APIError
+                    ZkError::UnknownError
                 })
             }
-            None => Err(ZkError::APIError),
+            None => Err(ZkError::UnknownError),
         }
     }
 }

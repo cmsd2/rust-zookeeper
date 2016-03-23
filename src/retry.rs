@@ -4,8 +4,9 @@ use rand;
 use rand::Rng;
 use schedule_recv as timer;
 use time;
-use super::time_ext::*;
-use super::{ZkResult, ZkError};
+use time_ext::*;
+use consts::*;
+use zkresult::*;
 
 pub enum RetryResult {
     RetryAfterSleep(Duration),
@@ -72,6 +73,15 @@ impl SleepingRetry for RetryNTimes {
 
     fn get_sleep_time(&self, _retry_count: u32, _elapsed_time: Duration) -> Duration {
         self.retry_interval
+    }
+}
+
+#[derive(Copy, Clone, Debug)]
+pub struct NoRetry;
+
+impl RetryPolicy for NoRetry {
+    fn allow_retry(&self, _retry_count: u32, _elapsed_time: Duration) -> RetryResult {
+        RetryResult::Stop
     }
 }
 
@@ -230,11 +240,11 @@ impl RetryLoop {
     session moved
     session expired
     */
-    pub fn is_retry_err(err: ZkError) -> bool {
-        match err {
-            ZkError::ConnectionLoss => true,
-            ZkError::OperationTimeout => true,
-            ZkError::SessionExpired => true,
+    pub fn is_retry_err(err: &ZkError) -> bool {
+        match *err {
+            ZkError::ApiError(ZkApiError::ConnectionLoss) => true,
+            ZkError::ApiError(ZkApiError::OperationTimeout) => true,
+            ZkError::ApiError(ZkApiError::SessionExpired) => true,
             /* session moved error too? */
             _ => false,
         }
@@ -253,7 +263,7 @@ impl RetryLoop {
     {
         debug!("retry loop handling error {:?}", err);
         
-        if Self::is_retry_err(err) {
+        if Self::is_retry_err(&err) {
             let elapsed_time = self.elapsed_time();
             self.retry_count += 1;
 

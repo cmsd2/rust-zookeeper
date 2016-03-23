@@ -145,7 +145,7 @@ fn zk_example() {
         }
     });
 
-    let m = Arc::new(InterProcessMutex::new(zk_arc.clone(), "/", "test_mutex", 1, retry));
+    let m = Arc::new(InterProcessMutex::new(zk_arc.clone(), "/", "test_mutex", 1));
 
     println!("acquiring mutex first time");
     let result_1 = m.acquire(None).ok();

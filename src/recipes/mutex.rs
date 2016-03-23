@@ -1,29 +1,26 @@
 use std::sync::{Arc};
 use zookeeper::ZooKeeper;
 use std::time::Duration;
-use retry::*;
+use zkresult::*;
 use super::locks::*;
 
-pub struct InterProcessMutex<R>
-    where R: RetryPolicy + Send + Clone + 'static
+pub struct InterProcessMutex
 {
-    internals: LockInternals<R>,
+    internals: LockInternals,
 }
 
-impl <R> InterProcessMutex<R>
-    where R: RetryPolicy + Send + Clone + 'static
+impl InterProcessMutex
 {
-    pub fn new(zk: Arc<ZooKeeper>, path: &str, lock_name: &str, max_leases: u32, retry_policy: R) -> InterProcessMutex<R> {
+    pub fn new(zk: Arc<ZooKeeper>, path: &str, lock_name: &str, max_leases: u32) -> InterProcessMutex {
         InterProcessMutex {
-            internals: LockInternals::<R>::new(zk, path, lock_name, max_leases, retry_policy)
+            internals: LockInternals::new(zk, path, lock_name, max_leases)
         }
     }
 }
 
-impl <R> InterProcessLock for InterProcessMutex<R>
-    where R: RetryPolicy + Send + Clone + 'static
+impl InterProcessLock for InterProcessMutex
 {
-    fn acquire(&self, duration: Option<Duration>) -> LockResult<bool> {
+    fn acquire(&self, duration: Option<Duration>) -> ZkResult<bool> {
         self.internals.acquire(duration)
     }
     
@@ -31,7 +28,7 @@ impl <R> InterProcessLock for InterProcessMutex<R>
         self.internals.is_acquired_in_this_process()
     }
     
-    fn release(&self) -> LockResult<()> {
+    fn release(&self) -> ZkResult<()> {
         self.internals.release()
     }
     

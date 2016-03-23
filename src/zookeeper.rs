@@ -1,4 +1,5 @@
 use consts::*;
+use zkresult::*;
 use proto::*;
 use io::ZkIo;
 use listeners::{ListenerSet, Subscription};
@@ -7,13 +8,10 @@ use num::FromPrimitive;
 use watch::{Watch, Watcher, WatchType, ZkWatch};
 use std::io::Read;
 use std::net::{SocketAddr, ToSocketAddrs};
-use std::result;
 use std::sync::atomic::{AtomicIsize, Ordering};
 use std::sync::mpsc::{sync_channel, SyncSender};
 use std::time::Duration;
 use std::thread;
-
-pub type ZkResult<T> = result::Result<T, ZkError>;
 
 pub struct RawRequest {
     pub opcode: OpCode,
@@ -143,7 +141,7 @@ impl ZooKeeperClient for ZooKeeper {
 
         match self.request::<ExistsRequest, ExistsResponse>(OpCode::Exists, self.xid(), req, None) {
             Ok(response) => Ok(Some(response.stat)),
-            Err(ZkError::NoNode) => Ok(None),
+            Err(ZkError::ApiError(ZkApiError::NoNode)) => Ok(None),
             Err(e) => Err(e),
         }
     }
@@ -298,7 +296,7 @@ impl ZooKeeper {
         thread::Builder::new()
             .name(name.to_owned())
             .spawn(task)
-            .map_err(|_| ZkError::SystemError)
+            .map_err(|_| ZkError::ApiError(ZkApiError::SystemError))
     }
 
     fn parse_connect_string(connect_string: &str) -> ZkResult<(Vec<SocketAddr>, Option<String>)> {
@@ -318,10 +316,10 @@ impl ZooKeeper {
                 Ok(mut addrs) => {
                     match addrs.nth(0) {
                         Some(addr) => addr,
-                        None => return Err(ZkError::BadArguments),
+                        None => return Err(ZkError::ApiError(ZkApiError::BadArguments)),
                     }
                 }
-                Err(_) => return Err(ZkError::BadArguments),
+                Err(_) => return Err(ZkError::ApiError(ZkApiError::BadArguments)),
             };
             addrs.push(addr);
         }
@@ -343,7 +341,7 @@ impl ZooKeeper {
             xid: xid,
             opcode: opcode,
         };
-        let buf = try!(to_len_prefixed_buf(rh, req).map_err(|_| ZkError::MarshallingError));
+        let buf = try!(to_len_prefixed_buf(rh, req).map_err(|_| ZkError::ApiError(ZkApiError::MarshallingError)));
 
         let (resp_tx, resp_rx) = sync_channel(0);
         let request = RawRequest {
@@ -355,29 +353,29 @@ impl ZooKeeper {
 
         try!(self.io.send(request).map_err(|err| {
             warn!("error sending request: {:?}", err);
-            ZkError::ConnectionLoss
+            ZkError::ApiError(ZkApiError::ConnectionLoss)
         }));
 
         let mut response = try!(resp_rx.recv().map_err(|err| {
             warn!("error receiving response: {:?}", err);
-            ZkError::ConnectionLoss
+            ZkError::ApiError(ZkApiError::ConnectionLoss)
         }));
 
         match response.header.err {
             0 => {
                 Ok(try!(ReadFrom::read_from(&mut response.data)
-                            .map_err(|_| ZkError::MarshallingError)))
+                            .map_err(|_| ZkError::ApiError(ZkApiError::MarshallingError))))
             }
-            e => Err(FromPrimitive::from_i32(e).unwrap()),
+            e => Err(ZkError::ApiError(FromPrimitive::from_i32(e).unwrap())),
         }
     }
 
     fn validate_path(path: &str) -> ZkResult<&str> {
         match path {
-            "" => Err(ZkError::BadArguments),
+            "" => Err(ZkError::ApiError(ZkApiError::BadArguments)),
             path => {
                 if path.len() > 1 && path.chars().last() == Some('/') {
-                    Err(ZkError::BadArguments)
+                    Err(ZkError::ApiError(ZkApiError::BadArguments))
                 } else {
                     Ok(path)
                 }

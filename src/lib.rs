@@ -22,13 +22,15 @@ extern crate regex;
 extern crate kernel32;
 
 pub use consts::*;
+pub use zkresult::*;
 pub use proto::{Acl, Stat, WatchedEvent};
 pub use zoodefs::acls;
 pub use zoodefs::perms;
-pub use zookeeper::{ZkResult, ZooKeeper, ZooKeeperClient};
+pub use zookeeper::{ZooKeeper, ZooKeeperClient};
 pub use zookeeper_ext::ZooKeeperExt;
 pub use watch::Watcher;
 
+mod zkresult;
 mod consts;
 mod io;
 mod listeners;

@@ -1,6 +1,7 @@
-use super::zookeeper::{ZooKeeper, ZkResult, ZooKeeperClient};
+use super::zookeeper::{ZooKeeper, ZooKeeperClient};
 use super::proto::{Acl, Stat, WatchedEvent};
-use super::consts::{CreateMode, ZkError};
+use super::consts::{CreateMode, ZkApiError};
+use super::zkresult::*;
 use super::retry::*;
 use super::paths;
 use uuid::Uuid;
@@ -8,20 +9,6 @@ use super::ZooKeeperExt;
 use std::sync::mpsc::*;
 use std::sync::Mutex;
 use std::sync::Arc;
-
-#[derive(Copy, Clone, Debug)]
-pub enum CuratorError {
-    ZkError(ZkError),
-    Timeout,
-}
-
-impl From<ZkError> for CuratorError {
-    fn from(err: ZkError) -> CuratorError {
-        CuratorError::ZkError(err)
-    }
-}
-
-pub type CuratorResult<T> = Result<T, CuratorError>;
 
 pub trait Curator : ZooKeeperClient {
     fn build_create<R>(&self, retry: R) -> CreateBuilder<R> where R: RetryPolicy;
@@ -40,7 +27,7 @@ pub trait Curator : ZooKeeperClient {
 
     fn build_set_data<R>(&self, retry: R) -> SetDataBuilder<R> where R: RetryPolicy;
 
-    fn retry<P, F, T>(&self, retry_policy: &P, mut fun: F) -> CuratorResult<T>
+    fn retry<P, F, T>(&self, retry_policy: &P, mut fun: F) -> ZkResult<T>
         where P: RetryPolicy, F: FnMut() -> ZkResult<T>;
 }
 
@@ -94,7 +81,7 @@ impl Curator for ZooKeeper {
         SetDataBuilder::new(&self, retry_policy)
     }
 
-    fn retry<P, F, T>(&self, retry_policy: &P, fun: F) -> CuratorResult<T>
+    fn retry<P, F, T>(&self, retry_policy: &P, fun: F) -> ZkResult<T>
         where P: RetryPolicy,
               F: FnMut() -> ZkResult<T>
     
@@ -103,10 +90,10 @@ impl Curator for ZooKeeper {
             Ok(result) => {
                 match result {
                     Some(value) => Ok(value),
-                    None => Err(CuratorError::Timeout),
+                    None => Err(ZkError::Timeout),
                 }
             },
-            Err(err) => Err(CuratorError::ZkError(err)),
+            Err(err) => Err(err),
         }
     }
 }
@@ -165,7 +152,7 @@ impl <'a, R> CreateBuilder<'a, R> where R: RetryPolicy {
         }
     }
 
-    pub fn for_path(self, path: &str, data: Vec<u8>) -> CuratorResult<String> {
+    pub fn for_path(self, path: &str, data: Vec<u8>) -> ZkResult<String> {
         let mut attempt = 0;
         let mut created_path = None;
 
@@ -188,14 +175,14 @@ impl <'a, R> CreateBuilder<'a, R> where R: RetryPolicy {
 
                 match result {
                     Ok(created_path_result) => Ok(created_path_result),
-                    Err(ZkError::NoNode) => {
+                    Err(ZkError::ApiError(ZkApiError::NoNode)) => {
                         trace!("handling NoNode after create...");
                         if self.create_parents {
                             try!(self.zk.ensure_path(base_path));
 
                             self.zk.create(&path, data.clone(), self.acl.clone(), self.mode)
                         } else {
-                            Err(ZkError::NoNode)
+                            Err(ZkError::ApiError(ZkApiError::NoNode))
                         }
                     },
                     Err(err) => Err(err)
@@ -272,7 +259,7 @@ impl <'a, R, W> ExistsBuilder<'a, R, W> where R: RetryPolicy, W : Fn(WatchedEven
         self
     }
 
-    pub fn for_path(self, path: &str) -> CuratorResult<Option<Stat>> {
+    pub fn for_path(self, path: &str) -> ZkResult<Option<Stat>> {
         if self.watcher.is_some() {
             let maybe_watcher = self.watcher.as_ref();
 	
@@ -329,7 +316,7 @@ impl <'a, R> DeleteBuilder<'a, R> where R: RetryPolicy {
         self
     }
 
-    pub fn for_path(self, path: &str) -> CuratorResult<()> {
+    pub fn for_path(self, path: &str) -> ZkResult<()> {
         self.zk.retry(&self.retry_policy, || {
             self.zk.delete(path, self.version)  
         })
@@ -349,7 +336,7 @@ impl <'a, R> GetAclBuilder<'a, R> where R: RetryPolicy {
         }
     }
 
-    pub fn for_path(self, path: &str) -> CuratorResult<(Vec<Acl>, Stat)> {
+    pub fn for_path(self, path: &str) -> ZkResult<(Vec<Acl>, Stat)> {
         self.zk.retry(&self.retry_policy, || {
             self.zk.get_acl(path)
         })
@@ -392,7 +379,7 @@ impl <'a, R, W> GetChildrenBuilder<'a, R, W> where R: RetryPolicy, W: Fn(Watched
         self
     }
 
-    pub fn for_path(self, path: &str) -> CuratorResult<Vec<String>> {
+    pub fn for_path(self, path: &str) -> ZkResult<Vec<String>> {
 
         if self.watcher.is_some() {
             let maybe_watcher = self.watcher.as_ref();
@@ -464,7 +451,7 @@ impl <'a, R, W> GetDataBuilder<'a, R, W> where R: RetryPolicy, W: Fn(WatchedEven
 	self
     }
 
-    pub fn for_path(self, path: &str) -> CuratorResult<(Vec<u8>, Stat)> {
+    pub fn for_path(self, path: &str) -> ZkResult<(Vec<u8>, Stat)> {
 
         if self.watcher.is_some() {
             let maybe_watcher = self.watcher.as_ref();
@@ -529,7 +516,7 @@ impl <'a, R> SetAclBuilder<'a, R> where R: RetryPolicy {
         self
     }
 
-    pub fn for_path(self, path: &str) -> CuratorResult<Stat> {
+    pub fn for_path(self, path: &str) -> ZkResult<Stat> {
         self.zk.retry(&self.retry_policy, || {
             self.zk.set_acl(path, self.acl.clone(), self.version)
         })
@@ -563,7 +550,7 @@ impl <'a, R> SetDataBuilder<'a, R> where R: RetryPolicy {
         self
     }
 
-    pub fn for_path(self, path: &str) -> CuratorResult<Stat> {
+    pub fn for_path(self, path: &str) -> ZkResult<Stat> {
         self.zk.retry(&self.retry_policy, || {
             self.zk.set_data(path, self.data.clone(), self.version)  
         })
